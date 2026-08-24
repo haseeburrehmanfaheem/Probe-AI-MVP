@@ -1,0 +1,10 @@
+{
+  "port": "/dev/cu.usbmodem11301",
+  "board_fqbn": "arduino:avr:uno",
+  "baud_rate": 115200,
+  "timeout_seconds": 0.25,
+  "allowed_rates_hz": [1, 2, 5, 10, 20],
+  "measurement_timeout_seconds": 10,
+  "verification_tolerance_fraction": 0.15,
+  "max_codegen_repairs": 1
+}
