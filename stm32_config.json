@@ -1,0 +1,5 @@
+{
+  "board_fqbn": "STMicroelectronics:stm32:Nucleo_64:pnum=NUCLEO_F401RE",
+  "port": "SWD",
+  "programmer_cli": "STM32_Programmer_CLI"
+}
