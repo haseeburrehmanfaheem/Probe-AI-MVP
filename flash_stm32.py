@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone STM32 flasher.
+"""Standalone STM32 flasher
 
 Compiles an Arduino .ino sketch with arduino-cli (STM32 core) and flashes the
 resulting .elf onto an STM32 Nucleo with STM32CubeProgrammer's CLI over SWD
@@ -18,6 +18,8 @@ Config JSON (all keys optional except board_fqbn):
     }
 If --config is omitted, it looks for stm32_config.json next to the .ino, then
 next to this script.
+
+prereqs required
 """
 
 from __future__ import annotations
