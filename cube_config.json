@@ -1,0 +1,9 @@
+{
+  "port": "SWD",
+  "programmer_cli": "STM32_Programmer_CLI",
+  "cubemx_cli": "STM32CubeMX",
+  "build_system": "auto",
+  "cmake_build_type": "Debug",
+  "cmake_generator": "Ninja",
+  "jobs": 4
+}

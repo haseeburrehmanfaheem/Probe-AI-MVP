@@ -1,0 +1,5 @@
+{
+  "board_fqbn": "energia:msp432r:MSP-EXP432P401R",
+  "programmer_cli": "DSLite",
+  "ccxml": null
+}
