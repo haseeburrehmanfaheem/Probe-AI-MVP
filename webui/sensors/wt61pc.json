@@ -1,0 +1,33 @@
+{
+  "model": "WT61PC",
+  "aliases": ["WT61PC-TTL", "WT61", "WT61PC TTL"],
+  "vendor": "WitMotion",
+  "type": "6-axis motion sensor (accelerometer + gyroscope)",
+  "protocol": "UART (TTL)",
+  "supply_voltage": "3.3-5 V",
+  "pins": [
+    {"name": "TX", "signal": "UART_TX", "description": "Sensor transmits data"},
+    {"name": "RX", "signal": "UART_RX", "description": "Sensor receives commands"},
+    {"name": "VCC", "signal": "VCC_5V", "description": "Power, 5 V"},
+    {"name": "GND", "signal": "GND", "description": "Ground"}
+  ],
+  "uart": {"default_baud": 9600, "supported_baud": [9600, 115200], "data_bits": 8, "parity": "N", "stop_bits": 1},
+  "recommended_settings": {"baud": 9600, "parity": "N", "stop_bits": 1, "ack": 1},
+  "data": "11-byte packets starting with 0x55; 0x51 = acceleration (g), 0x52 = angular rate (deg/s). The probe cube decodes them and streams ACCEL (AX, AY, AZ in g) and GYRO (GX, GY, GZ in deg/s) lines.",
+  "test_plan": [
+    {
+      "name": "still",
+      "instruction": "Place the sensor flat on the table and keep it completely still.",
+      "seconds": 4,
+      "expect": "Samples arrive. GX/GY/GZ std < 2 dps and abs_max < 10 dps. AX/AY/AZ std < 0.05 g, and one accel axis mean is close to +/-1 g (gravity).",
+      "offline_check": {"fields": "^G[XYZ]$", "stat": "abs_max", "op": "<", "value": 10, "mode": "all"}
+    },
+    {
+      "name": "motion",
+      "instruction": "Pick up the sensor and tilt or rotate it back and forth.",
+      "seconds": 4,
+      "expect": "Samples arrive. At least one gyro axis abs_max > 30 dps, or at least one accel axis std > 0.1 g.",
+      "offline_check": {"fields": "^G[XYZ]$", "stat": "abs_max", "op": ">", "value": 30, "mode": "any"}
+    }
+  ]
+}

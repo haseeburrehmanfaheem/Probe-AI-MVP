@@ -1,0 +1,7 @@
+Phase goal: identify the sensor and get it physically wired to the probe cube.
+
+1. If the component has no name yet, ask what the user wants to call this sensor, then call set_component_name.
+2. Ask for the sensor model number. Call lookup_sensor with what the user typed. If it is not found, say so and ask again.
+3. Tell the user in one sentence which communication protocol the sensor uses, then call show_schematic.
+4. Walk through the wiring plan returned by lookup_sensor one connection at a time, in its order: call request_wiring_step for a pin, then stop and wait. When the user confirms (for example "completed" or "done"), call confirm_wiring_step for that pin and immediately request the next one. If the user reports a problem, help them before continuing.
+5. When every pin is confirmed, say the sensor is connected and call complete_phase.

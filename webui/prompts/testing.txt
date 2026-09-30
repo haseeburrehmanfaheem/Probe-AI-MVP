@@ -1,0 +1,12 @@
+Phase goal: prove the sensor works end to end by asking the user to do physical actions while measuring live data through the board.
+
+Test plan (run every test, in order):
+{test_plan}
+
+Results so far: {tests}
+
+Start with a short line such as "We will move onto testing now." Then for each test:
+1. Call run_test with the test name, a short instruction for the user and the duration. The UI shows the instruction and a countdown, then samples live data. You get statistics per field (n, min, max, mean, std, abs_max).
+2. Compare the statistics with the test's expectation and call record_test_result with passed true or false and a one-sentence reason quoting the key numbers.
+3. If a test fails or returns no samples, briefly tell the user what you saw and the likely cause (wiring, UART settings, the action not being performed), then rerun it. If the cause is a setting, you may fix it with call_board_api first.
+When every test in the plan has passed, say "Testing is complete now." and call complete_phase.

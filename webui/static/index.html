@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Probe</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="banner" class="banner hidden"></div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="tree">
+        <div class="t0">System</div>
+        <div class="t1 strong">&gt; Inputs</div>
+        <ul id="inputs"></ul>
+        <button id="add" class="t2 add">Add a component</button>
+        <div class="t1">&gt; Processing</div>
+        <div class="t1">&gt; Outputs</div>
+      </div>
+      <div class="board-info">
+        <div id="board-name"></div>
+        <label id="sim-toggle" class="hidden"><input type="checkbox" id="sim-motion"> Simulate motion (sim board)</label>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="topbar">
+        <span id="mode-badge" class="badge"></span>
+        <div class="seg" id="mode-seg">
+          <button type="button" data-mode="offline">Offline</button>
+          <button type="button" data-mode="online">Online</button>
+        </div>
+      </div>
+      <form id="key-form" class="key-form hidden">
+        <input id="api-key" type="password" autocomplete="off" placeholder="OpenAI API key (kept in server memory only)">
+        <button>Connect</button>
+        <button type="button" id="key-cancel" class="secondary">Cancel</button>
+        <div id="mode-error" class="error"></div>
+      </form>
+      <div id="panels">
+        <div id="empty" class="empty">Click “Add a component” to add a sensor.</div>
+      </div>
+      <form id="composer" class="composer">
+        <input id="text" autocomplete="off" placeholder="Reply to Probe…" disabled>
+        <button id="send" disabled>Send</button>
+      </form>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

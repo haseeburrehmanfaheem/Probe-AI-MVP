@@ -1,0 +1,15 @@
+{
+  "build_system": "auto",
+  "flasher": "auto",
+  "openocd_cli": "openocd",
+  "openocd_board": "board/ti_msp432_launchpad.cfg",
+  "dslite_cli": "DSLite",
+  "ccxml": null,
+  "ccs_cli": null,
+  "ccs_configuration": "Debug",
+  "make_target": "all",
+  "make_vars": {},
+  "cmake_build_type": "Debug",
+  "cmake_generator": "Ninja",
+  "jobs": 4
+}
