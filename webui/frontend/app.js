@@ -141,8 +141,9 @@ const handlers = {
     const f = feed(m);
     let block = [...f.children].filter((n) => !n.classList.contains("thinking")).pop();
     if (!block || !block.classList.contains("io")) block = append(m, el("div", "io"));
-    const err = /^ERR/.test(m.line);
-    block.append(el("div", m.direction === "rx" ? `rx${err ? " err" : ""}` : "tx", `${m.direction === "tx" ? "→" : "←"} ${m.line}`));
+    const err = m.error ?? /^ERR/.test(m.line);
+    const arrow = { tx: "→", rx: "←", sensor: "⇠" }[m.direction] || "·";
+    block.append(el("div", m.direction === "tx" ? "tx" : `${m.direction}${err ? " err" : ""}`, `${arrow} ${m.line}`));
     scrollDown();
   },
   config(m) {
@@ -221,7 +222,7 @@ $("#key-form").onsubmit = (e) => {
 };
 $("#key-cancel").onclick = () => { $("#key-form").classList.add("hidden"); $("#mode-error").textContent = ""; };
 $("#add").onclick = () => send({ type: "add_component" });
-$("#sim-motion").onchange = (e) => send({ type: "sim_motion", on: e.target.checked });
+$("#sim-fault").onchange = (e) => send({ type: "sim_fault", on: e.target.checked });
 $("#composer").onsubmit = (e) => {
   e.preventDefault();
   const text = $("#text").value.trim();

@@ -1,0 +1,123 @@
+{
+  "board": "STM32 Nucleo-H723ZG (Nautilus UART LAB)",
+  "transport": {
+    "type": "sim",
+    "port": "/dev/cu.usbmodemXXXX",
+    "baud_rate": 115200,
+    "timeout_seconds": 0.02,
+    "open_delay_seconds": 0.3
+  },
+  "vars": {"port": "uart4"},
+  "command_timeout_seconds": 2,
+  "sensor_timeout_seconds": 2.5,
+  "sensor_error_pattern": "^ERR",
+  "sensor_retries": 1,
+  "init_commands": ["mon {port} 1"],
+  "notes": [
+    "The sensor is on lab port uart4. The backend talks to the STM32 console and relays sensor commands with 'send uart4 ...'.",
+    "uart4 boots at 115200 while the sensor transmits at 9600, so until the baud is fixed uart4 only sees a 0x00 flood (zeros and FE climb).",
+    "The first sensor command after any reconfiguration may get 'ERR unknown cmd' from stale bytes in the sensor's line buffer. The backend retries once (retried_after).",
+    "A cfg the board rejects is reported with ok=false and the console reply. If it was a port-level failure, the backend restores the last good config (restored_config).",
+    "Failure signatures: notices with '0x00 suppressed' = gross baud mismatch or RX held low; no data at all = loose wire or sensor not transmitting; garbled lines + FE = wrong baud or framing; PE = parity mismatch.",
+    "Sampling results include link counter deltas for the port (rx, ORE, FE, NE, PE, zeros, dropped), seq_gaps (missed frames) and garbled_lines. Error counters count polls, not bytes: read them as zero vs climbing."
+  ],
+  "apis": {
+    "ports": {
+      "description": "List every lab port: open/closed, configured and actual baud, framing and link counters.",
+      "command": "ports",
+      "expect": "^ {port} ",
+      "parse": "ports"
+    },
+    "set_baud": {
+      "description": "Set the baud rate of the lab port the sensor is on.",
+      "command": "cfg {port} baud={baud}",
+      "params": {"baud": {"type": "integer", "description": "Baud rate, e.g. 9600 or 115200"}},
+      "expect": "^{port} reconfigured: ",
+      "kind": "cfg"
+    },
+    "set_data_bits": {
+      "description": "Set the number of data bits (excluding parity) of the lab port.",
+      "command": "cfg {port} data={data_bits}",
+      "params": {"data_bits": {"type": "integer", "enum": [7, 8, 9]}},
+      "expect": "^{port} reconfigured: ",
+      "kind": "cfg"
+    },
+    "set_parity": {
+      "description": "Set the parity of the lab port.",
+      "command": "cfg {port} parity={parity}",
+      "params": {"parity": {"type": "string", "enum": ["n", "e", "o"], "description": "n=none, e=even, o=odd"}},
+      "expect": "^{port} reconfigured: ",
+      "kind": "cfg"
+    },
+    "set_stop_bits": {
+      "description": "Set the number of stop bits of the lab port.",
+      "command": "cfg {port} stop={stop_bits}",
+      "params": {"stop_bits": {"type": "string", "enum": ["0.5", "1", "1.5", "2"]}},
+      "expect": "^{port} reconfigured: ",
+      "kind": "cfg"
+    },
+    "clear_counters": {
+      "description": "Zero the lab port's RX/TX and error counters.",
+      "command": "clear {port}",
+      "expect": "^{port} counters cleared$"
+    },
+    "sensor_ping": {
+      "description": "Link check: send PING to the sensor and wait for PONG.",
+      "command": "send {port} PING",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^PONG$"
+    },
+    "sensor_id": {
+      "description": "Ask the sensor for its identity string.",
+      "command": "send {port} ID?",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^NAUTILUS-DUMMY-SENSOR"
+    },
+    "sensor_read": {
+      "description": "Request one reading from the sensor.",
+      "command": "send {port} READ",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^\\$NAUT,"
+    },
+    "set_rate": {
+      "description": "Set the sensor's stream period in milliseconds (minimum 100).",
+      "command": "send {port} RATE {rate_ms}",
+      "params": {"rate_ms": {"type": "integer", "description": "Stream period in ms, at least 100"}},
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK RATE \\d+$"
+    },
+    "sensor_echo": {
+      "description": "Loopback integrity check: the sensor sends the text back.",
+      "command": "send {port} ECHO {text}",
+      "params": {"text": {"type": "string", "max_length": 50, "description": "Printable ASCII, single spaces"}},
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^{text}$"
+    },
+    "stream_on": {
+      "description": "Start the sensor's periodic stream of readings.",
+      "command": "send {port} START",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK STREAM ON$"
+    },
+    "stream_off": {
+      "description": "Stop the sensor's periodic stream of readings.",
+      "command": "send {port} STOP",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK STREAM OFF$"
+    }
+  },
+  "verify_apis": ["ports", "sensor_ping"],
+  "sampling": {
+    "start_api": "stream_on",
+    "stop_api": "stream_off",
+    "data_line_pattern": "^\\$NAUT,T=-?\\d+\\.\\d+,H=-?\\d+\\.\\d+,SEQ=\\d+\\*$",
+    "sequence_field": "SEQ",
+    "link_counters": true,
+    "lead_seconds": 3
+  },
+  "probe_cube_ports": [
+    {"label": "PD0", "accepts": "UART_TX", "mcu_pin": "PD0", "mcu_function": "UART4_RX"},
+    {"label": "PD1", "accepts": "UART_RX", "mcu_pin": "PD1", "mcu_function": "UART4_TX"},
+    {"label": "GND", "accepts": "GND", "mcu_pin": "GND", "mcu_function": "Ground"}
+  ]
+}

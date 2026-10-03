@@ -28,10 +28,14 @@ def finish(*items):
 
 def parse_change(text):
     change, t = {}, text.lower()
-    if m := re.search(r"\b(\d{4,7})\b", t): change["baud"] = int(m.group(1))
+    if m := re.search(r"\brate\s+(?:to\s+)?(\d+)\s*(?:ms)?|\b(\d+)\s*ms\b", t):
+        change["rate_ms"] = int(m.group(1) or m.group(2)); t = t[:m.start()] + t[m.end():]
+    if m := re.search(r"\b([789])\s*data\s*bits?|data\s*bits?\s+(?:to\s+)?([789])\b", t):
+        change["data_bits"] = int(m.group(1) or m.group(2)); t = t[:m.start()] + t[m.end():]
+    if m := re.search(r"\b(\d{3,8})\b", t): change["baud"] = int(m.group(1))
     if m := re.search(r"\b(even|odd|none|no)\s+parity|parity\s+(?:to\s+)?(even|odd|none|[neo])\b", t):
-        change["parity"] = (m.group(1) or m.group(2))[0].upper()
-    if m := re.search(r"\b([12])\s*stop", t): change["stop_bits"] = int(m.group(1))
+        change["parity"] = (m.group(1) or m.group(2))[0]
+    if m := re.search(r"\b(0\.5|1\.5|1|2)\s*stop", t): change["stop_bits"] = m.group(1)
     if m := re.search(r"\b(enable|disable|turn on|turn off)\s+ack|\back\w*\s+(?:to\s+)?(on|off|1|0|enabled?|disabled?)\b", t):
         change["ack"] = 0 if re.match(r"(disable|turn off|off|0)", m.group(1) or m.group(2)) else 1
     return change
@@ -98,7 +102,7 @@ class OfflineLLM:
                 note += f" Note: the {c.sensor['model']} datasheet only lists {supported} baud."
             reply = yield [msg("I have set the configuration shown above." + note + " Let me know if you want to change anything.")]
             while not (change := parse_change(reply)) and not NO_CHANGE.search(reply):
-                reply = yield [msg("I can change the baud rate, parity, stop bits or ack, for example \"set baud to 115200\". "
+                reply = yield [msg("I can change the baud rate, data bits, parity, stop bits or the stream rate, for example \"set baud to 19200\". "
                                    "Or say \"looks good\" to continue.")]
             if not change: break
             settings.update(change); head = "Applying the change…"
@@ -134,18 +138,23 @@ class OfflineLLM:
             params = list(apis.get(name, {}).get("params", {}))
             if len(params) != 1: skipped.append(key); continue
             calls.append(call("call_board_api", api=name, args={params[0]: value}))
-        read_back = next((n for n in ("get_config", "read_config") if n in apis), None)
-        if read_back: calls.append(call("call_board_api", api=read_back, args={}))
+        calls += [call("call_board_api", api=n, args={}) for n in self.session.config.get("verify_apis", []) if n in apis]
         return calls, skipped
 
     def check(self, test, res):
-        if not res.get("ok"): return False, f"Could not read the sensor: {res.get('error', 'unknown error')}."
+        if not res.get("ok"):
+            start = res.get("start", {})
+            why = start.get("error") or res.get("error", "unknown error")
+            return False, f"Could not read the sensor: {res.get('error', 'unknown error')} ({why}). Check the sensor's TX wire and the UART settings."
         if not res.get("samples"):
             return False, "No data arrived from the sensor. Check the TX wire and the UART settings (baud, parity, stop bits)."
         rule = test.get("offline_check")
         if not rule: return True, f"Received {res['samples']} samples."
-        vals = {k: s[rule["stat"]] for k, s in res["fields"].items() if re.search(rule["fields"], k)}
+        if rule.get("source") == "link":
+            vals = {k: v for k, v in res.get("link", {}).items() if re.search(rule["fields"], k)}
+        else:
+            vals = {k: s[rule["stat"]] for k, s in res["fields"].items() if re.search(rule["fields"], k)}
         if not vals: return False, f"No fields matching {rule['fields']} in the data."
         ok = (all if rule.get("mode", "all") == "all" else any)(OPS[rule["op"]](v, rule["value"]) for v in vals.values())
         shown = ", ".join(f"{k}={v:.2f}" for k, v in vals.items())
-        return ok, f"{rule['stat']} {shown} (expected {rule.get('mode', 'all')} {rule['op']} {rule['value']})."
+        return ok, f"{rule.get('stat', 'delta')} {shown} (expected {rule.get('mode', 'all')} {rule['op']} {rule['value']})."

@@ -11,3 +11,6 @@ Known facts:
 Component name: {name}
 Sensor: {sensor}
 Probe cube ports: {ports}
+
+Board notes:
+{notes}

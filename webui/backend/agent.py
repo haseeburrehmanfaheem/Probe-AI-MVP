@@ -120,6 +120,9 @@ class Session:
     def emit_threadsafe(self, c, type_, **kw):
         self.loop.call_soon_threadsafe(lambda: self.emit(c, type_, **kw))
 
+    def io_logger(self, c):
+        return lambda d, line, bad=False: self.emit_threadsafe(c, "board_io", direction=d, line=line, error=bad)
+
     # ---- inbound ----
     async def handle(self, msg):
         kind = msg.get("type")
@@ -133,8 +136,8 @@ class Session:
             await self.inbox.put(msg["text"].strip())
         elif kind == "set_mode":
             await self.set_mode(msg.get("mode"), msg.get("api_key"))
-        elif kind == "sim_motion":
-            self.board.sim_motion = bool(msg.get("on"))
+        elif kind == "sim_fault":
+            self.board.sim_fault = bool(msg.get("on"))
 
     async def next_user_text(self, c):
         text = await self.inbox.get()
@@ -164,7 +167,7 @@ class Session:
     def instructions(self, c):
         sensor = {k: v for k, v in c.sensor.items() if k != "test_plan"} if c.sensor else None
         apis = {name: {"description": a["description"], "params": a.get("params", {})} for name, a in self.config["apis"].items()}
-        facts = dict(board=self.config["board"], phase=c.phase.capitalize(), index=c.id, name=c.name or "(not named yet)",
+        facts = dict(board=self.config["board"], notes="\n".join(f"- {n}" for n in self.config.get("notes", [])) or "(none)", phase=c.phase.capitalize(), index=c.id, name=c.name or "(not named yet)",
                      sensor=json.dumps(sensor) if sensor else "(not identified yet)",
                      ports=json.dumps(self.config["probe_cube_ports"]), apis=json.dumps(apis, indent=1),
                      config=json.dumps(c.config) if c.config else "(none)",
@@ -255,8 +258,7 @@ class Session:
 
     # ---- configuration tools ----
     async def tool_call_board_api(self, c, api, args=None):
-        result = await asyncio.to_thread(self.board.call, api, args or {},
-                                         lambda d, line: self.emit_threadsafe(c, "board_io", direction=d, line=line))
+        result = await asyncio.to_thread(self.board.call, api, args or {}, self.io_logger(c))
         if result["ok"]: c.applied.append({"api": api, "args": args or {}})
         return result
 
@@ -280,8 +282,7 @@ class Session:
             if time.time() - last_sent[0] >= 0.1:
                 last_sent[0] = time.time(); self.emit_threadsafe(c, "reading", test_id=test_id, values=dict(latest))
 
-        result = await asyncio.to_thread(self.board.sample, seconds,
-                                         lambda d, line: self.emit_threadsafe(c, "board_io", direction=d, line=line), on_reading)
+        result = await asyncio.to_thread(self.board.sample, seconds, self.io_logger(c), on_reading)
         self.emit(c, "test_status", test_id=test_id, status="done", samples=result.get("samples", 0))
         return result
 

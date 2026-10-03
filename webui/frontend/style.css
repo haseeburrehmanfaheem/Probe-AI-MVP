@@ -56,7 +56,9 @@ button { font: inherit; cursor: pointer; }
 .schematic svg { width: 100%; max-width: 620px; display: block; margin: 0 auto; }
 .io { font: 13px/1.5 Menlo, monospace; color: #444; background: #e6e6e6; border-radius: 8px; padding: 6px 10px; }
 .io .rx { color: #2c6a1f; }
-.io .rx.err { color: var(--red); }
+.io .rx.err, .io .sensor.err { color: var(--red); }
+.io .sensor { color: #1f4f8a; }
+.io div { white-space: pre; }
 table.config { border-collapse: collapse; }
 table.config td { padding: 2px 18px 2px 0; }
 table.config td:first-child { color: var(--muted); }

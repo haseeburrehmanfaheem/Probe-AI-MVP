@@ -1,6 +1,6 @@
-"""Probe web UI: serves the single-page app and runs one agent Session per WebSocket.
+"""Probe web UI backend: serves the frontend and runs one agent Session per WebSocket.
 
-Run from this directory:  python server.py   ->  http://127.0.0.1:8000
+Run:  python backend/server.py   ->  http://127.0.0.1:8000
 """
 import json, os
 from pathlib import Path
@@ -11,15 +11,16 @@ from agent import Session
 from board import Board
 
 HERE = Path(__file__).parent
+FRONTEND = HERE.parent / "frontend"
 CONFIG = json.loads(Path(os.environ.get("BOARD_CONFIG", HERE / "board_config.json")).read_text())
 board = Board(CONFIG)  # one board shared by all tabs; the serial port can only be opened once
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
 
 @app.get("/")
-def index(): return FileResponse(HERE / "static" / "index.html")
+def index(): return FileResponse(FRONTEND / "index.html")
 
 
 @app.websocket("/ws")

@@ -1,0 +1,34 @@
+{
+  "model": "NAUTILUS-DUMMY-SENSOR",
+  "aliases": ["nautilus dummy sensor", "dummy sensor", "nautilus", "mega2560", "dummy_sensor"],
+  "vendor": "Arduino MEGA 2560 running tools/dummy_sensor/dummy_sensor.ino",
+  "type": "simulated temperature and humidity sensor",
+  "protocol": "UART (TTL)",
+  "supply_voltage": "powered from its own USB cable; only GND is shared with the probe cube",
+  "pins": [
+    {"name": "TX1 (pin 18)", "signal": "UART_TX", "description": "Sensor transmits data"},
+    {"name": "RX1 (pin 19)", "signal": "UART_RX", "description": "Sensor receives commands"},
+    {"name": "GND", "signal": "GND", "description": "Common ground, mandatory"}
+  ],
+  "uart": {"default_baud": 9600, "supported_baud": [9600], "data_bits": 8, "parity": "n", "stop_bits": "1"},
+  "recommended_settings": {"baud": 9600, "data_bits": 8, "parity": "n", "stop_bits": "1", "rate_ms": 250},
+  "commands": {"ID?": "identity string", "READ": "one reading", "START / STOP": "stream on / off",
+               "RATE <ms>": "stream period, min 100", "PING": "replies PONG", "ECHO <text>": "replies <text>"},
+  "data": "Streams $NAUT,T=<degC>,H=<%RH>,SEQ=<n>* frames at 1 Hz from power-up (period set by RATE). T drifts 21-27 degC, H drifts 47-63 %RH. SEQ increments by 1 per frame.",
+  "test_plan": [
+    {
+      "name": "stream",
+      "instruction": "Leave both boards powered and the jumper wires in place while the stream is measured.",
+      "seconds": 5,
+      "expect": "At least 10 samples at 250 ms. T between 20 and 28, H between 45 and 65. seq_gaps 0 and no garbled_lines.",
+      "offline_check": {"fields": "^T$", "stat": "n", "op": ">", "value": 9, "mode": "all"}
+    },
+    {
+      "name": "link_clean",
+      "instruction": "Keep the wires still while the link error counters are measured.",
+      "seconds": 5,
+      "expect": "link rx > 0 and link ORE, FE, NE and PE all 0.",
+      "offline_check": {"source": "link", "fields": "^(ORE|FE|NE|PE)$", "op": "<", "value": 1, "mode": "all"}
+    }
+  ]
+}
