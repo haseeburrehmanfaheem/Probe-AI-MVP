@@ -14,7 +14,7 @@
   "sensor_retries": 1,
   "init_commands": ["mon {port} 1"],
   "notes": [
-    "The sensor is on lab port uart4. The backend talks to the STM32 console and relays sensor commands with 'send uart4 ...'.",
+    "The sensor is on lab port uart4 (either the temperature/humidity dummy sensor or the motion sensor sketch, same commands). The backend talks to the STM32 console and relays sensor commands with 'send uart4 ...'.",
     "uart4 boots at 115200 while the sensor transmits at 9600, so until the baud is fixed uart4 only sees a 0x00 flood (zeros and FE climb).",
     "The first sensor command after any reconfiguration may get 'ERR unknown cmd' from stale bytes in the sensor's line buffer. The backend retries once (retried_after).",
     "A cfg the board rejects is reported with ok=false and the console reply. If it was a port-level failure, the backend restores the last good config (restored_config).",
@@ -71,7 +71,7 @@
       "description": "Ask the sensor for its identity string.",
       "command": "send {port} ID?",
       "expect": "^\\[{port}\\] TX \\d+B$",
-      "sensor_expect": "^NAUTILUS-DUMMY-SENSOR"
+      "sensor_expect": "^NAUTILUS-"
     },
     "sensor_read": {
       "description": "Request one reading from the sensor.",
@@ -110,7 +110,7 @@
   "sampling": {
     "start_api": "stream_on",
     "stop_api": "stream_off",
-    "data_line_pattern": "^\\$NAUT,T=-?\\d+\\.\\d+,H=-?\\d+\\.\\d+,SEQ=\\d+\\*$",
+    "data_line_pattern": "^\\$(NAUT,T=-?\\d+\\.\\d+,H=-?\\d+\\.\\d+|MOTN,L=\\d+\\.\\d+,M=[01]),SEQ=\\d+\\*$",
     "sequence_field": "SEQ",
     "link_counters": true,
     "lead_seconds": 3

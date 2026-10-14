@@ -59,6 +59,7 @@ class Board:
 
     def __init__(self, config):
         self.config = config; self.con = None; self.lock = threading.Lock(); self.sim_fault = False
+        self.sim_device, self.sim_motion_until = "pth", 0.0  # sim only: which sensor sketch, motion burst end
         self.vars = config.get("vars", {})
         self.port = self.vars.get("port")
         self.data_re = re.compile(config["sampling"]["data_line_pattern"])
@@ -74,7 +75,8 @@ class Board:
         if self.con is None:
             if self.transport_type == "sim":
                 from sim import SimNautilus
-                t = SimNautilus(fault=lambda: self.sim_fault)
+                t = SimNautilus(fault=lambda: self.sim_fault, device=lambda: self.sim_device,
+                                motion=lambda: time.time() < self.sim_motion_until)
             else:
                 t = SerialTransport(self.config["transport"])
             self.con = NautilusConsole(t, self._async)

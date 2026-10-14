@@ -4,47 +4,133 @@
   <meta charset="utf-8">
   <title>Probe</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+            <symbol id="i-logo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#112442"/><circle cx="8" cy="12" r="2.6" fill="#a0c385"/><path d="M12.5 7.5a6.4 6.4 0 0 1 0 9" fill="none" stroke="#f7d878" stroke-width="2" stroke-linecap="round"/><path d="M16 4.5a10.6 10.6 0 0 1 0 15" fill="none" stroke="#a0c385" stroke-width="2" stroke-linecap="round" opacity=".7"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" d="M9 4h6l-1 5 3 3v2H7v-2l3-3zM12 14v6"/></symbol>
+      <symbol id="i-pin-on" viewBox="0 0 24 24"><path fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M9 4h6l-1 5 3 3v2H7v-2l3-3z"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M12 14v6"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></g></symbol>
+      <symbol id="i-files" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"/></symbol>
+      <symbol id="i-chip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></g></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6"/></symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></g></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path fill="currentColor" d="M3.4 20.4l17.5-7.5a1 1 0 0 0 0-1.8L3.4 3.6a.9.9 0 0 0-1.2 1.1L4.5 11 13 12l-8.5 1-2.3 6.3a.9.9 0 0 0 1.2 1.1z"/></symbol>
+      <symbol id="i-sensor" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></g></symbol>
+    </defs>
+  </svg>
+
   <div id="banner" class="banner hidden"></div>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="tree">
-        <div class="t0">System</div>
-        <div class="t1 strong">&gt; Inputs</div>
-        <ul id="inputs"></ul>
-        <button id="add" class="t2 add">Add a component</button>
-        <div class="t1">&gt; Processing</div>
-        <div class="t1">&gt; Outputs</div>
-      </div>
-      <div class="board-info">
-        <div id="board-name"></div>
-        <label id="sim-toggle" class="hidden"><input type="checkbox" id="sim-fault"> Simulate a loose sensor TX wire (sim board)</label>
-      </div>
-    </aside>
-    <main class="main">
-      <div class="topbar">
+  <div id="toasts" class="toasts"></div>
+
+  <div class="workbench" id="workbench">
+    <header class="titlebar">
+      <div class="brand"><svg class="logo"><use href="#i-logo"/></svg><span>Probe</span></div>
+      <div class="title-center" id="title-center">Probe</div>
+      <div class="title-right">
         <span id="mode-badge" class="badge"></span>
         <div class="seg" id="mode-seg">
           <button type="button" data-mode="offline">Offline</button>
           <button type="button" data-mode="online">Online</button>
         </div>
       </div>
-      <form id="key-form" class="key-form hidden">
-        <input id="api-key" type="password" autocomplete="off" placeholder="OpenAI API key (kept in server memory only)">
-        <button>Connect</button>
-        <button type="button" id="key-cancel" class="secondary">Cancel</button>
-        <div id="mode-error" class="error"></div>
-      </form>
-      <div id="panels">
-        <div id="empty" class="empty">Click “Add a component” to add a sensor.</div>
-      </div>
+    </header>
+
+    <form id="key-form" class="key-form hidden">
+      <input id="api-key" type="password" autocomplete="off" placeholder="OpenAI API key (kept in server memory only)">
+      <button class="btn primary">Connect</button>
+      <button type="button" id="key-cancel" class="btn ghost">Cancel</button>
+      <div id="mode-error" class="error"></div>
+    </form>
+
+    <nav class="activitybar">
+      <button class="act on" data-view="explorer" title="Explorer (⌘B)"><svg><use href="#i-files"/></svg></button>
+      <button class="act" data-view="board" title="Board"><svg><use href="#i-chip"/></svg></button>
+    </nav>
+
+    <aside class="sidebar" id="sidebar">
+      <section class="view" data-view="explorer">
+        <div class="view-head">
+          <span>Explorer</span>
+          <button class="icon-btn" id="collapse" title="Collapse sidebar (⌘B)"><svg><use href="#i-panel"/></svg></button>
+        </div>
+        <div class="new-project">
+          <button class="btn primary block" id="new-project"><svg><use href="#i-plus"/></svg>New project</button>
+          <form id="new-project-form" class="hidden">
+            <input id="project-name" autocomplete="off" maxlength="60" placeholder="Project name, then Enter">
+          </form>
+        </div>
+
+        <div class="pane open" id="pane-pinned">
+          <button class="pane-head"><svg class="chev"><use href="#i-chev"/></svg>Pinned<span class="count" id="pinned-count"></span></button>
+          <div class="pane-body"><ul class="plist" id="pinned"></ul><div class="pane-empty" id="pinned-empty">Pin a project to keep it here.</div></div>
+        </div>
+
+        <div class="pane open" id="pane-history">
+          <button class="pane-head"><svg class="chev"><use href="#i-chev"/></svg>History<span class="count" id="history-count"></span></button>
+          <div class="pane-body"><ul class="plist" id="history"></ul><div class="pane-empty" id="history-empty">No projects yet.</div></div>
+        </div>
+
+        <div class="pane open hidden" id="pane-project">
+          <button class="pane-head"><svg class="chev"><use href="#i-chev"/></svg><span id="project-title">Project</span></button>
+          <div class="pane-body tree">
+            <div class="tree-group open">
+              <button class="tree-row t0"><svg class="chev"><use href="#i-chev"/></svg>System</button>
+              <div class="tree-children">
+                <div class="tree-group open">
+                  <button class="tree-row t1"><svg class="chev"><use href="#i-chev"/></svg>Inputs</button>
+                  <div class="tree-children">
+                    <ul id="inputs"></ul>
+                    <button id="add" class="tree-row t2 add"><svg class="ico"><use href="#i-plus"/></svg>Add a component</button>
+                  </div>
+                </div>
+                <div class="tree-group">
+                  <button class="tree-row t1"><svg class="chev"><use href="#i-chev"/></svg>Processing</button>
+                  <div class="tree-children"><div class="tree-empty t2">No components</div></div>
+                </div>
+                <div class="tree-group">
+                  <button class="tree-row t1"><svg class="chev"><use href="#i-chev"/></svg>Outputs</button>
+                  <div class="tree-children"><div class="tree-empty t2">No components</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="view hidden" data-view="board">
+        <div class="view-head"><span>Board</span></div>
+        <div class="board-info">
+          <div class="kv"><span>Controller</span><b class="board-name"></b></div>
+          <div class="kv"><span>Transport</span><b id="board-transport"></b></div>
+          <div class="kv"><span>LLM</span><b id="board-llm"></b></div>
+          <label id="sim-toggle" class="switch hidden">
+            <input type="checkbox" id="sim-fault"><span class="track"></span>
+            <span>Simulate a loose sensor TX wire</span>
+          </label>
+        </div>
+      </section>
+    </aside>
+
+    <main class="editor">
+      <div class="tabs" id="tabs"></div>
+      <div id="panels"></div>
+      <div id="quick" class="quick hidden"></div>
       <form id="composer" class="composer">
-        <input id="text" autocomplete="off" placeholder="Reply to Probe…" disabled>
-        <button id="send" disabled>Send</button>
+        <input id="text" autocomplete="off" placeholder="Message Probe…" aria-label="Message Probe" disabled>
+        <button id="send" class="btn primary" disabled><svg><use href="#i-send"/></svg>Send</button>
       </form>
     </main>
+
+    <footer class="statusbar">
+      <div class="sb-left"><span class="sb-item sb-brand">Probe</span><span class="sb-item board-name"></span><span class="sb-item" id="sb-transport"></span></div>
+      <div class="sb-right"><span class="sb-item" id="sb-phase"></span><span class="sb-item" id="sb-mode"></span></div>
+    </footer>
   </div>
   <script src="/static/app.js"></script>
 </body>

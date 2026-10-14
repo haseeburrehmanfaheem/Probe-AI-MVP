@@ -6,6 +6,7 @@ Byte-level stand-in for the ST-Link VCP, so the real console client is exercised
   the quirks (double-space send payload, failed cfg still updates the stored config,
   'data + parity does not fit' leaves the port open on its old settings).
 - SimMega mirrors tools/dummy_sensor/dummy_sensor.ino on uart4: 9600 8N1, streams $NAUT
+  (or, as the motion sketch in webui/tools/motion_sensor, $MOTN level/flag frames)
   frames at 1 Hz from power-up, answers ID? READ START STOP RATE PING ECHO.
 - The wire between them is modelled from the two framings (MEGA fixed at 9600 8N1):
   gross baud mismatch -> 0x00 flood + FE, near miss -> garbage + FE, 8E1/8O1/9N1 -> garbage
@@ -59,8 +60,11 @@ def c_atol(s):
 
 class SimMega:
     BAUD, BYTE_T = 9600, 10 / 9600
+    IDS = {"pth": "NAUTILUS-DUMMY-SENSOR v1 (MEGA2560)", "motion": "NAUTILUS-MOTION-SENSOR v1 (MEGA2560)"}
 
-    def __init__(self, t0):
+    def __init__(self, t0, device=lambda: "pth", motion=lambda: False):
+        self.device, self.motion = device, motion  # callables: which sketch is running, whether something moves
+        self.level, self.flag = 0.06, 0
         self.t0, self.streaming, self.period = t0, True, 1.0
         self.last_stream, self.seq = t0, 0
         self.line = bytearray()
@@ -74,6 +78,13 @@ class SimMega:
         self.tx_free = start + (len(s) + 2) * self.BYTE_T
 
     def reading(self, t):
+        if self.device() == "motion":
+            # PIR-style presence level: eases toward ~0.85 while something moves, decays to a noisy floor.
+            target = 0.85 + 0.08 * math.sin(t * 7) if self.motion() else 0.06
+            self.level = min(1.0, max(0.0, self.level + (target - self.level) * 0.35 + random.gauss(0, 0.015)))
+            self.flag = 1 if self.level > 0.5 else 0 if self.level < 0.3 else self.flag
+            s = f"$MOTN,L={self.level:.2f},M={self.flag},SEQ={self.seq}*"; self.seq += 1
+            return s
         ms = (t - self.t0) * 1000
         temp = 24.0 + 3.0 * math.sin(ms / 60000.0 * 2 * math.pi)
         hum = 55.0 + 8.0 * math.sin(ms / 90000.0 * 2 * math.pi + 1.0)
@@ -93,7 +104,7 @@ class SimMega:
             self.line.append(b)
 
     def handle(self, t, cmd):
-        if cmd == "ID?": self.send_line(t, "NAUTILUS-DUMMY-SENSOR v1 (MEGA2560)")
+        if cmd == "ID?": self.send_line(t, self.IDS.get(self.device(), self.IDS["pth"]))
         elif cmd == "READ": self.send_line(t, self.reading(t))
         elif cmd == "START": self.streaming = True; self.send_line(t, "OK STREAM ON")
         elif cmd == "STOP": self.streaming = False; self.send_line(t, "OK STREAM OFF")
@@ -117,7 +128,7 @@ class Port:
 class SimNautilus:
     """Transport interface: write(bytes), read(timeout) -> bytes, close()."""
 
-    def __init__(self, fault=lambda: False, seed=1):
+    def __init__(self, fault=lambda: False, seed=1, device=lambda: "pth", motion=lambda: False):
         self.t0 = time.time()
         self.fault = fault  # callable -> True while the sensor's TX wire is "disconnected"
         self.rng = random.Random(seed)
@@ -126,7 +137,7 @@ class SimNautilus:
         self.kclk = {"234578": 0, "16910": 0}
         self.ports = {p.name: p for p in (Port("uart4", 115200), Port("usart2", 9600, rs485=True, de=True),
                                           Port("usart6", 19200, group="16910"))}
-        self.mega = SimMega(self.t0)
+        self.mega = SimMega(self.t0, device, motion)
         self.prev_mega_byte_t, self.acc = -1.0, 0.0
         for p in self.ports.values(): self.apply(p, self.t0)
         self.mega.rx.clear()  # boot-time TX float happens before the MEGA's sketch is listening

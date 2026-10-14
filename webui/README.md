@@ -26,6 +26,13 @@ webui/
   frontend/                index.html, app.js, style.css (served at /static)
 ```
 
+## Projects
+The sidebar has **New project** at the top, then **Pinned** and **History**, then the open project's System tree.
+- Each project's UI events (messages, schematics, board console, results) are saved to `backend/data/projects/<id>.json`. Set `PROBE_DATA` to store them somewhere else.
+- Opening a project from the list replays it into the UI. **Add a component** continues it, with numbering carrying on.
+- A component left unfinished (page reload, server restart) is shown as **Interrupted**. Add a new component to redo it.
+- Hover a project to pin, unpin or delete it.
+
 ## Testing without OpenAI
 Use the **Offline / Online** switch at the top right. A badge shows the current mode.
 - **Offline:** `offline_llm.py` stands in for the LLM. It is a rule-based script per phase that calls the same tools and passes the same gates.
@@ -37,6 +44,12 @@ Things to try with the sim board (model: `nautilus dummy sensor`):
 - `set parity to even`. The sensor can't parse 8E1 commands, so the ping fails.
 - Tick "Simulate a loose sensor TX wire" before a test. The stream never starts and the test fails. Untick it and say `retry`.
 - Watch the board log after any reconfiguration. The first sensor command gets `ERR unknown cmd` (stale bytes in the MEGA's line buffer), and the backend retries it once.
+
+## Motion sensor
+Enter the model `motion sensor` (or `nautilus motion sensor` / `pir`) to bring up the motion sensor instead of the temperature/humidity one.
+- **Sim board:** the simulated MEGA switches to the motion sketch. In the test card, **Simulate motion** makes the presence level rise for 2.5 s. The motion test needs it pressed during the measurement.
+- **Chart:** presence level on a 0–1 axis, with motion periods shaded and a "Motion / Clear" label. Chart/Table switch.
+- **Real hardware:** flash `tools/motion_sensor/motion_sensor.ino` to the MEGA with a PIR module (for example HC-SR501) on pin 2. It speaks the same commands as the dummy sensor and streams `$MOTN,L=<0.00-1.00>,M=<0|1>,SEQ=<n>*`.
 
 ## How the backend talks to the board
 - Every command is sent as one line ending in `\r`. The reply is everything between the echo and the next `> `. If the echo doesn't match what was sent, the command is retried.

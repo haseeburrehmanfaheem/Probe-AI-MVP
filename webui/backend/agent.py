@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from openai import AsyncOpenAI
 from offline_llm import OfflineLLM
+import projects
 
 HERE = Path(__file__).parent
 PHASES = ["connectivity", "configuration", "testing"]
@@ -80,6 +81,7 @@ class Session:
         self.loop = asyncio.get_running_loop()
         self.out, self.inbox = asyncio.Queue(), asyncio.Queue()
         self.components, self.task = [], None
+        self.project, self.next_index, self.flush_handle = None, 0, None
         self.writer = asyncio.create_task(self._write(ws))
         self.tools = {**STATIC_TOOLS, "call_board_api": fn(
             "call_board_api", "Call one of the probe cube's board APIs.",
@@ -87,6 +89,7 @@ class Session:
              "args": {"type": "object", "description": "Arguments for the API's params; {} if it has none."}}, ["api"])}
         self.emit(None, "hello", board=config["board"], transport=board.transport_type)
         self.use_mode("offline" if os.environ.get("PROBE_LLM") == "offline" or not RUNTIME["api_key"] else "online")
+        self.send_projects()
 
     def use_mode(self, mode):
         if mode == "online":
@@ -114,8 +117,58 @@ class Session:
         while True: await ws.send_json(await self.out.get())
 
     def emit(self, c, type_, **kw):
-        msg = {"type": type_, **({"component_id": c.id, "phase": c.phase} if c else {}), **kw}
+        msg = {"type": type_, "ts": round(time.time(), 3), **({"component_id": c.id, "phase": c.phase} if c else {}), **kw}
         self.out.put_nowait(msg)
+        if self.project and c and type_ in projects.LOGGED: self._log(msg)
+
+    # ---- projects ----
+    def _log(self, msg):
+        self.project.record(msg)
+        if msg["type"] in ("component", "phase", "done"): self.flush(); self.send_projects()
+        elif not self.flush_handle: self.flush_handle = self.loop.call_later(1.0, self.flush)
+
+    def flush(self):
+        if self.flush_handle: self.flush_handle.cancel(); self.flush_handle = None
+        if self.project: self.project.save()
+
+    def send_projects(self):
+        self.emit(None, "projects", projects=projects.list_projects(), current=self.project and self.project.id)
+
+    def busy(self):
+        if self.task and not self.task.done():
+            self.emit(None, "error", text="Finish the current component first."); return True
+        return False
+
+    def open_project(self, project):
+        self.flush()
+        self.project, self.components = project, []
+        self.next_index = len(project.data["components"])
+        self.emit(None, "project_opened", project=project.summary())
+        for ev in project.data["events"]: self.out.put_nowait({**ev, "replay": True})
+        self.emit(None, "replay_done", interrupted=[cid for cid, c in project.data["components"].items() if not c["done"]])
+        self.send_projects()
+
+    async def handle_project(self, kind, msg):
+        if kind == "new_project":
+            if self.busy(): return
+            name = str(msg.get("name") or "").strip()[:60] or time.strftime("Bring-up %b %d, %H:%M")
+            self.open_project(projects.Project.create(name))
+        elif kind == "open_project":
+            if self.busy() or (self.project and self.project.id == msg.get("id")): return
+            try: self.open_project(projects.Project.load(msg.get("id")))
+            except (OSError, ValueError): self.emit(None, "error", text="That project could not be opened.")
+        elif kind == "pin_project":
+            if self.project and self.project.id == msg.get("id"):
+                self.project.data["pinned"] = bool(msg.get("pinned")); self.flush()
+            else: projects.set_pinned(msg.get("id"), msg.get("pinned"))
+            self.send_projects()
+        elif kind == "delete_project":
+            if self.project and self.project.id == msg.get("id"):
+                if self.busy(): return
+                self.project = None; self.components = []
+                self.emit(None, "project_closed")
+            projects.delete(msg.get("id"))
+            self.send_projects()
 
     def emit_threadsafe(self, c, type_, **kw):
         self.loop.call_soon_threadsafe(lambda: self.emit(c, type_, **kw))
@@ -126,16 +179,21 @@ class Session:
     # ---- inbound ----
     async def handle(self, msg):
         kind = msg.get("type")
-        if kind == "add_component":
-            if self.task and not self.task.done():
-                return self.emit(None, "error", text="Finish the current component first.")
-            c = Component(index=len(self.components) + 1); self.components.append(c)
+        if kind in ("new_project", "open_project", "pin_project", "delete_project"):
+            await self.handle_project(kind, msg)
+        elif kind == "add_component":
+            if self.busy(): return
+            if not self.project: self.open_project(projects.Project.create(time.strftime("Bring-up %b %d, %H:%M")))
+            self.next_index += 1
+            c = Component(index=self.next_index); self.components.append(c)
             self.emit(c, "component", index=c.index, name=c.name or "New Sensor")
             self.task = asyncio.create_task(self.run_component(c))
         elif kind == "user_message" and str(msg.get("text", "")).strip():
             await self.inbox.put(msg["text"].strip())
         elif kind == "set_mode":
             await self.set_mode(msg.get("mode"), msg.get("api_key"))
+        elif kind == "sim_motion":
+            self.board.sim_motion_until = time.time() + min(float(msg.get("seconds", 2.5)), 10)
         elif kind == "sim_fault":
             self.board.sim_fault = bool(msg.get("on"))
 
@@ -145,6 +203,7 @@ class Session:
         return text
 
     def close(self):
+        self.flush()
         for t in (self.task, self.writer):
             if t: t.cancel()
 
@@ -217,12 +276,21 @@ class Session:
 
     async def tool_lookup_sensor(self, c, model):
         q = norm(model)
-        match = next((s for s in SENSORS if q and any(norm(n) and (norm(n) in q or q in norm(n))
-                                                       for n in [s["model"], *s.get("aliases", [])])), None)
+
+        def score(s):  # exact name > longest name inside the query > query inside a name
+            best = 0
+            for n in map(norm, [s["model"], *s.get("aliases", [])]):
+                if n and q == n: best = max(best, 3)
+                elif n and n in q: best = max(best, 2 + len(n) / 1000)
+                elif n and q in n: best = max(best, 1)
+            return best
+        ranked = sorted(SENSORS, key=score, reverse=True)
+        match = ranked[0] if q and ranked and score(ranked[0]) > 0 else None
         if not match:
             return {"found": False, "query": model}
         ports = self.config["probe_cube_ports"]
         c.sensor, c.confirmed = match, set()
+        self.board.sim_device = match.get("sim_device", "pth")  # sim only: attach the matching sensor sketch
         c.wiring = []
         for pin in match["pins"]:
             port = next((p for p in ports if p["accepts"] == pin["signal"]), None)
@@ -272,7 +340,9 @@ class Session:
         seconds = max(1.0, min(15.0, float(seconds)))
         lead = self.config["sampling"].get("lead_seconds", 3)
         test_id = f"{c.id}-{name}-{len(c.test_ids)}"; c.test_ids[name] = test_id
-        self.emit(c, "test_step", test_id=test_id, name=name, instruction=instruction, lead=lead, seconds=seconds)
+        self.emit(c, "test_step", test_id=test_id, name=name, instruction=instruction, lead=lead, seconds=seconds,
+                  units=(c.sensor or {}).get("units", {}), chart=(c.sensor or {}).get("chart"),
+                  sim=self.board.transport_type == "sim")
         await asyncio.sleep(lead)
         self.emit(c, "test_status", test_id=test_id, status="sampling")
         latest, last_sent = {}, [0.0]

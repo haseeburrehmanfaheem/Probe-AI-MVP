@@ -10,6 +10,7 @@
     {"name": "RX1 (pin 19)", "signal": "UART_RX", "description": "Sensor receives commands"},
     {"name": "GND", "signal": "GND", "description": "Common ground, mandatory"}
   ],
+  "units": {"T": "°C", "H": "%RH"},
   "uart": {"default_baud": 9600, "supported_baud": [9600], "data_bits": 8, "parity": "n", "stop_bits": "1"},
   "recommended_settings": {"baud": 9600, "data_bits": 8, "parity": "n", "stop_bits": "1", "rate_ms": 250},
   "commands": {"ID?": "identity string", "READ": "one reading", "START / STOP": "stream on / off",
