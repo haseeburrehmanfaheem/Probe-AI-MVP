@@ -450,6 +450,7 @@ class Session:
     def view_spec(self, c):
         s = c.sensor or {}
         return dict(units=sensor_lib.units(s), views=s.get("views"), sim=self.board.transport_type == "sim",
+                    live_hint=s.get("live_hint"), live_window=s.get("live_window", 10),
                     sim_action=s.get("sim_action"), ui_actions={k: a["label"] for k, a in s.get("ui_actions", {}).items()})
 
     def reading_sink(self, c, ids, live=False):

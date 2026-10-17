@@ -121,7 +121,11 @@ class NautilusConsole:
             end = time.time() + timeout
             while not r.complete and time.time() < end: self.pump()
             self.reply = None
-            if not r.complete: raise TimeoutError(f"no prompt after {line!r} (is the console on this port?)")
+            if not r.complete:
+                # Seen right after the port opens: a byte of the line (or its CR) goes missing and the console
+                # never prompts. End whatever line it holds and try again before giving up.
+                if attempt < retries: self.t.write(b"\r"); self.pump(0.3); continue
+                raise TimeoutError(f"no prompt after {line!r} (is the console on this port?)")
             if r.echo_ok: return r
         return r
 

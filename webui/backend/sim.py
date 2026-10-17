@@ -11,7 +11,9 @@ Byte-level stand-in for the ST-Link VCP, so the real console client is exercised
 - SimWT61PC is a WitMotion WT61PC-TTL: binary 55 51/52/53 frames at 1 Hz (as the bench unit shipped), 9600 baud,
   FF AA register writes (unlock, rate, baud after save, calibration, yaw zero). Its pose
   follows the "Simulate tilt" button: a few seconds of roll/pitch/yaw sweeps.
-- Devices are plugged into lab ports by layout() ({port: "pth" | "motion" | "wt61pc"}).
+- SimPTHDemo is the PTH-DEMO-01 bench unit: one "T:..,H:..,P:.." line every 2 s at 9600 8N1,
+  values random-walking like the real one (noisy pressure), no commands.
+- Devices are plugged into lab ports by layout() ({port: "pth" | "motion" | "wt61pc" | "pth_demo"}).
 - The wire between them is modelled from the two framings (MEGA fixed at 9600 8N1):
   gross baud mismatch -> 0x00 flood + FE, near miss -> garbage + FE, 8E1/8O1/9N1 -> garbage
   + FE (+PE), 7N1 -> clean text but FE, 7E1/7O1 -> clean text but PE. Any port re-init
@@ -129,6 +131,31 @@ class SimMega:
     def port_reinit(self, t): self.rx.append((t, 0xFF))  # the STM32's TX pin floats during DeInit
 
 
+class SimPTHDemo:
+    """PTH-DEMO-01: streams T:<degC>,H:<%RH>,P:<hPa> every 2 s, ignores anything it receives."""
+
+    def __init__(self, t0, seed=3):
+        self.kind, self.rng = "pth_demo", random.Random(seed)
+        self.baud, self.prev_byte_t, self.period, self.last_stream, self.streaming = 9600, -1.0, 2.0, t0, True
+        self.rx, self.tx, self.tx_free = deque(), deque(), t0
+        self.t, self.h, self.p = 16.3, 25.5, 1016.0
+
+    def next_stream(self): return self.last_stream + self.period
+
+    def stream_tick(self, t):
+        self.last_stream = t
+        self.t += self.rng.gauss(-0.02, 0.2); self.h += self.rng.gauss(0, 0.5); self.p += self.rng.gauss(0, 1.0)
+        self.t, self.h, self.p = min(30, max(5, self.t)), min(90, max(10, self.h)), min(1040, max(990, self.p))
+        line = f"T:{self.t:.2f},H:{self.h:.2f},P:{self.p:.2f}\r\n".encode()
+        start = max(t, self.tx_free)
+        for i, b in enumerate(line): self.tx.append((start + i * 10 / self.baud, b))
+        self.tx_free = start + len(line) * 10 / self.baud
+
+    def receive(self, t, b): pass
+
+    def port_reinit(self, t): pass
+
+
 class SimWT61PC:
     """WitMotion WT61PC-TTL: always streaming 55 51/52/53 frames; config writes FF AA <reg> <lo> <hi>."""
     RATES = {0x01: 0.2, 0x02: 0.5, 0x03: 1, 0x04: 2, 0x05: 5, 0x06: 10, 0x07: 20, 0x08: 50, 0x09: 100, 0x0A: 125, 0x0B: 200}
@@ -242,6 +269,7 @@ class SimNautilus:
             d = self.devices.get(port)
             if d is not None and d.kind == kind: continue
             if kind == "wt61pc": self.devices[port] = SimWT61PC(now, self.motion)
+            elif kind == "pth_demo": self.devices[port] = SimPTHDemo(now)
             elif d is not None and isinstance(d, SimMega): d.kind = kind  # same MEGA, other sketch
             else: self.devices[port] = SimMega(now, kind, self.motion)
 

@@ -214,5 +214,6 @@
   "recommended_notes": {
     "baud": "the sketch is fixed at 9600 8N1",
     "rate_ms": "a faster stream than the 1 s default gives the tests more samples"
-  }
+  },
+  "live_hint": "Move in front of the sensor and watch the presence level."
 }

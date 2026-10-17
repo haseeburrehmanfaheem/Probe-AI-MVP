@@ -11,7 +11,7 @@ SIGNALS = {"UART_TX", "UART_RX", "GND", "VCC_5V", "VCC_3V3", "RS485_A", "RS485_B
 FRAMINGS = {"line", "witmotion"}
 VIEW_KINDS = {"timeseries", "motion", "attitude", "stat"}
 BOARD_HELPERS = {"stream_probe"}  # board-side APIs every sensor can use (see board.py)
-PROMPT_HIDDEN = {"test_plan", "views", "sim_action", "ui_actions", "ui_rate_hz", "sim_device", "_id", "_knowledge"}
+PROMPT_HIDDEN = {"test_plan", "views", "sim_action", "ui_actions", "ui_rate_hz", "sim_device", "live_hint", "live_window", "_id", "_knowledge"}
 
 
 class SensorError(ValueError): pass

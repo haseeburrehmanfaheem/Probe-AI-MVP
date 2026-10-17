@@ -383,14 +383,15 @@ const handlers = {
   // Live monitor after configuration: streams until Stop, the next board call or the end of the phase.
   live_view(m) {
     const card = el("div", "card test live"), title = el("div", "card-title");
-    const chart = new LiveView({ seconds: 10, window: 10, units: m.units || {}, views: m.views });
+    const win = m.live_window || 10;
+    const chart = new LiveView({ seconds: win, window: win, units: m.units || {}, views: m.views });
     const pulse = el("span", `live-pill${m.replay ? " off" : ""}`, m.replay ? "Stopped" : "Live");
     const ctl = liveControls(m), stop = el("button", "btn ghost small", "Stop"); stop.type = "button";
     stop.onclick = () => { stop.disabled = true; send({ type: "live_stop", view_id: m.view_id }); };
     title.append(el("span", null, "Live monitor"), el("span", "muted", `${m.title} · ${m.port}`), pulse, ...ctl.nodes);
     if (!m.replay) title.append(stop);
     title.append(chart.toggle);
-    const status = el("div", "status", m.replay ? "" : m.note || "Streaming live. Move the sensor and watch the views follow.");
+    const status = el("div", "status", m.replay ? "" : m.note || `Streaming live. ${m.live_hint || ""}`.trim());
     card.append(title, status, chart.el);
     lives[m.view_id] = { chart, status, pulse, ctl, stop };
     ctl.setLive(!m.replay); chart.live = !m.replay;
@@ -894,7 +895,7 @@ function niceTicks(lo, hi, count) {
   const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9)) + (String(step / mag).includes(".") ? 1 : 0);
   return { ticks, decimals };
 }
-function fmt(v) { const a = Math.abs(v); return a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2); }
+function fmt(v) { const a = Math.abs(v); return a >= 10000 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toFixed(2); }
 
 // ---- sidebar: views, collapse, tree ----
 const workbench = $("#workbench");

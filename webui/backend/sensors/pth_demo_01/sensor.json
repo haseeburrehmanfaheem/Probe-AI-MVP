@@ -1,0 +1,222 @@
+{
+  "model": "PTH-DEMO-01",
+  "aliases": [
+    "PTH",
+    "PTH sensor",
+    "PTH demo",
+    "pressure temperature humidity",
+    "pressure sensor",
+    "barometer",
+    "barometric sensor",
+    "pressure humidity temperature"
+  ],
+  "vendor": "Placeholder name (bench unit driven by an Arduino Uno R3; the actual sensor chip is not identified yet)",
+  "type": "pressure (hPa), temperature (°C) and relative humidity (%) sensor",
+  "protocol": "UART (TTL), ASCII text lines",
+  "interface": "ttl",
+  "supply_voltage": "powered from its own USB cable; only GND is shared with the probe cube (verify)",
+  "sim_device": "pth_demo",
+  "pins": [
+    {
+      "name": "TX",
+      "signal": "UART_TX",
+      "description": "Sensor transmits data lines"
+    },
+    {
+      "name": "RX",
+      "signal": "UART_RX",
+      "description": "Sensor receive line (no commands are known yet)"
+    },
+    {
+      "name": "GND",
+      "signal": "GND",
+      "description": "Common ground, mandatory"
+    }
+  ],
+  "uart": {
+    "default_baud": 9600,
+    "supported_baud": [
+      9600
+    ],
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1"
+  },
+  "recommended_settings": {
+    "baud": 9600,
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1"
+  },
+  "recommended_notes": {
+    "baud": "the rate the bench unit was measured at (9600 8N1, clean link)"
+  },
+  "framing": {
+    "type": "line",
+    "pattern": "^T:-?\\d+(\\.\\d+)?,H:\\d+(\\.\\d+)?,P:\\d+(\\.\\d+)?$"
+  },
+  "stream": {
+    "continuous": true,
+    "probe_seconds": 6
+  },
+  "ui_rate_hz": 2,
+  "fields": {
+    "T": {
+      "unit": "°C",
+      "range": [
+        -40,
+        85
+      ],
+      "description": "air temperature"
+    },
+    "H": {
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description": "relative humidity"
+    },
+    "P": {
+      "unit": "hPa",
+      "range": [
+        300,
+        1100
+      ],
+      "description": "barometric pressure"
+    }
+  },
+  "verify_apis": [
+    "ports",
+    "stream_probe"
+  ],
+  "data": "Streams one ASCII line every 2 s (0.5 Hz) from power-up, no start/stop: T:<degC>,H:<%RH>,P:<hPa> ending in CRLF, e.g. T:16.50,H:24.80,P:1019.55 (27 bytes). No commands are known, so the sensor is only listened to.",
+  "views": [
+    {
+      "kind": "stat",
+      "title": "Current reading",
+      "fields": [
+        "T",
+        "H",
+        "P"
+      ]
+    },
+    {
+      "kind": "timeseries",
+      "title": "Temperature",
+      "fields": [
+        "T"
+      ],
+      "unit": "°C",
+      "min_span": 2
+    },
+    {
+      "kind": "timeseries",
+      "title": "Humidity",
+      "fields": [
+        "H"
+      ],
+      "unit": "%",
+      "min_span": 5
+    },
+    {
+      "kind": "timeseries",
+      "title": "Pressure",
+      "fields": [
+        "P"
+      ],
+      "unit": "hPa",
+      "min_span": 5
+    }
+  ],
+  "test_plan": [
+    {
+      "name": "stream",
+      "instruction": "Leave the sensor where it is while its readings are recorded (it sends one reading every 2 seconds).",
+      "seconds": 12,
+      "checks": [
+        {
+          "fields": "^T$",
+          "stat": "n",
+          "op": ">",
+          "value": 4,
+          "label": "at least 5 readings (one every 2 s)"
+        },
+        {
+          "fields": "^T$",
+          "stat": "min",
+          "op": ">",
+          "value": -10,
+          "label": "temperature plausible (> -10 °C)"
+        },
+        {
+          "fields": "^T$",
+          "stat": "max",
+          "op": "<",
+          "value": 50,
+          "label": "temperature plausible (< 50 °C)"
+        },
+        {
+          "fields": "^H$",
+          "stat": "min",
+          "op": ">=",
+          "value": 0,
+          "label": "humidity ≥ 0 %"
+        },
+        {
+          "fields": "^H$",
+          "stat": "max",
+          "op": "<=",
+          "value": 100,
+          "label": "humidity ≤ 100 %"
+        },
+        {
+          "fields": "^P$",
+          "stat": "min",
+          "op": ">",
+          "value": 870,
+          "label": "pressure plausible (> 870 hPa)"
+        },
+        {
+          "fields": "^P$",
+          "stat": "max",
+          "op": "<",
+          "value": 1085,
+          "label": "pressure plausible (< 1085 hPa)"
+        },
+        {
+          "source": "result",
+          "fields": "garbled_lines",
+          "op": "<",
+          "value": 1,
+          "label": "every line well-formed"
+        }
+      ],
+      "expect": "Readings arrive about every 2 s and all three values are in plausible ranges. Pressure that changes by more than ~0.5 hPa between readings is unusual for a real barometer: mention it, but it is not a pass criterion."
+    },
+    {
+      "name": "link_clean",
+      "instruction": "Keep the wires still while the link error counters are measured.",
+      "seconds": 10,
+      "checks": [
+        {
+          "source": "link",
+          "fields": "^rx$",
+          "op": ">",
+          "value": 0,
+          "label": "bytes received (rx > 0)"
+        },
+        {
+          "source": "link",
+          "fields": "^(ORE|FE|NE|PE)$",
+          "op": "<",
+          "value": 1,
+          "label": "ORE, FE, NE and PE all 0"
+        }
+      ],
+      "expect": "Clean link: bytes arrive and no UART errors."
+    }
+  ],
+  "live_hint": "A new reading arrives every 2 seconds.",
+  "live_window": 60
+}

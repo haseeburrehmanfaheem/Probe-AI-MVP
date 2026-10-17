@@ -77,6 +77,12 @@ Enter the model `WT61PC` to bring up the WitMotion 6-axis IMU on `uart4`: VCC→
 - Try `rate 20 hz` during configuration (the measured rate follows; the sim does not model it, but on the real probe cube 20 Hz at 9600 damages frames, so 10 Hz is the recommended rate). Try `set baud to 115200`: only the port changes, so frames stop. Then `set baud to 9600` recovers.
 - Datasheet values that still need checking against the WitMotion manual are marked (verify) in `sensors/wt61pc_ttl/knowledge.md`.
 
+## PTH-DEMO-01 (pressure / temperature / humidity)
+Enter `pth sensor` (or `PTH-DEMO-01`). It is a placeholder name for the bench unit on uart4: sensor TX→PD0, RX→PD1, GND→GND.
+- It streams `T:<°C>,H:<%>,P:<hPa>` lines at 9600 8N1, one every 2 s, and is listen-only (no commands known). Configuration sets the port and proves the link with `stream_probe` (6 s for this sensor).
+- Live monitor: the current readings plus a 60 s chart of each value. Tests: plausible values and well-formed lines (`stream`), and a clean link (`link_clean`).
+- The sim bench has a matching device. On the bench, the unit is driven by an Arduino Uno R3, whose own USB serial port also shows up on the host.
+
 ## Motion sensor
 Enter the model `motion sensor` (or `nautilus motion sensor` / `pir`) to bring up the motion sensor instead of the temperature/humidity one.
 - **Sim board:** the simulated MEGA switches to the motion sketch. In the test card, **Simulate motion** makes the presence level rise for 2.5 s. The motion test needs it pressed during the measurement.

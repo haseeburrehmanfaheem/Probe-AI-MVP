@@ -100,7 +100,7 @@
       "params": {
         "seconds": {
           "type": "number",
-          "description": "Listening time, 0.5-5 (default 2)"
+          "description": "Listening time, 0.5-10 (default 2, or the sensor's probe_seconds for slow sensors)"
         }
       },
       "helper": true

@@ -345,6 +345,14 @@
     "recommended_notes": {
       "type": "object",
       "description": "Setting -> why it is recommended (shown to the LLM and the user)."
+    },
+    "live_hint": {
+      "type": "string",
+      "description": "One line shown on the live monitor card."
+    },
+    "live_window": {
+      "type": "number",
+      "description": "Seconds of history the live monitor shows (default 10); longer for slow sensors."
     }
   }
 }

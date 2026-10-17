@@ -495,5 +495,6 @@
   "recommended_notes": {
     "baud": "the WT61PC's factory default; also the port must match whatever the sensor currently uses",
     "rate_hz": "10 Hz is the fastest rate that streams clean on the probe cube at 9600 baud (20 Hz already damages frames); slower is fine too"
-  }
+  },
+  "live_hint": "Move the sensor and watch the views follow."
 }

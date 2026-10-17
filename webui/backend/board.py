@@ -337,7 +337,7 @@ class Board:
     def _stream_probe(self, tgt, args):
         """Board helper: listen for valid readings (start/stop the stream around it if the sensor needs that,
         unless a live stream already keeps it running)."""
-        try: seconds = min(5.0, max(0.5, float(args.get("seconds", 2))))
+        try: seconds = min(10.0, max(0.5, float(args.get("seconds", tgt["stream"].get("probe_seconds", 2)))))
         except (TypeError, ValueError): seconds = 2.0
         live = self.live_sink is not None
         start, stop = (None, None) if live else (tgt["stream"].get("start_api"), tgt["stream"].get("stop_api"))

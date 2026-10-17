@@ -8,7 +8,7 @@ Each decoder keeps running totals in .stats for sampling to diff.
 """
 import re, struct, time
 
-VALUE_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(-?\d+(?:\.\d+)?)")
+VALUE_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)[=:](-?\d+(?:\.\d+)?)")  # KEY=value or KEY:value
 MAX_LINE = 256  # a stream with no CRLF for this long is junk; drop it
 
 
@@ -16,7 +16,7 @@ def printable(raw): return "".join(chr(x) if 0x20 <= x < 0x7F else f"\\x{x:02x}"
 
 
 class LineDecoder:
-    """CRLF-terminated text. Lines matching `pattern` are data frames; their KEY=value pairs become fields."""
+    """CRLF-terminated text. Lines matching `pattern` are data frames; their KEY=value (or KEY:value) pairs become fields."""
 
     def __init__(self, pattern=None):
         self.pattern = re.compile(pattern) if pattern else None
