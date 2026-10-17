@@ -1,4 +1,16 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+
+# Web UI runtime data (saved projects)
 webui/backend/data/
+
+# macOS
+.DS_Store
+
+# STM32CubeIDE build output and per-machine IDE state (regenerated on build)
+nautilus_PTH_test/Debug/
+nautilus_PTH_test/Release/
+nautilus_PTH_test/.settings/language.settings.xml
+*.launch

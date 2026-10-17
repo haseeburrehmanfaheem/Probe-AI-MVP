@@ -5,13 +5,15 @@ generator: it yields the output items of one "response" and receives the next in
 the list of tool results after a turn with function calls, or the user's text after a turn
 without any (an empty turn just waits for the user).
 """
-import asyncio, itertools, json, operator, re
+import asyncio, itertools, json, re
+import checks
 from types import SimpleNamespace as NS
 
 _ids = itertools.count(1)
 DONE = re.compile(r"\b(done|completed?|connected|yes|ok(ay)?|ready|next|finished)\b", re.I)
+YES = re.compile(r"\b(yes|yep|yeah|sure|ok(ay)?|apply|do it|go ahead|please)\b", re.I)
+NO = re.compile(r"\b(no|nope|don'?t|do not|keep|leave)\b", re.I)
 NO_CHANGE = re.compile(r"\b(no|nope|nothing|looks good|good|fine|ok(ay)?|continue|done|next|proceed|all set)\b", re.I)
-OPS = {"<": operator.lt, ">": operator.gt}
 
 
 def msg(text): return NS(type="message", content=[NS(type="output_text", text=text)])
@@ -26,8 +28,23 @@ def finish(*items):
         items = ()
 
 
+NAMES = {"rate_hz": "output rate", "rate_ms": "stream period", "baud": "baud rate", "data_bits": "data bits", "stop_bits": "stop bits"}
+
+
+def setting_name(key): return NAMES.get(key, key.replace("_", " "))
+
+
+def show(key, value):
+    """A setting value for people: 10 -> '10 Hz' for rate_hz, 1.0 -> '1 Hz', None -> 'unknown'."""
+    if value is None: return "unknown"
+    num = f"{round(value, 1):g}" if isinstance(value, (int, float)) else str(value)
+    return num + (" Hz" if key.endswith("_hz") else " ms" if key.endswith("_ms") else "")
+
+
 def parse_change(text):
     change, t = {}, text.lower()
+    if m := re.search(r"\b(\d+(?:\.\d+)?)\s*hz\b", t):
+        change["rate_hz"] = float(m.group(1)); t = t[:m.start()] + t[m.end():]
     if m := re.search(r"\brate\s+(?:to\s+)?(\d+)\s*(?:ms)?|\b(\d+)\s*ms\b", t):
         change["rate_ms"] = int(m.group(1) or m.group(2)); t = t[:m.start()] + t[m.end():]
     if m := re.search(r"\b([789])\s*data\s*bits?|data\s*bits?\s+(?:to\s+)?([789])\b", t):
@@ -71,9 +88,11 @@ class OfflineLLM:
             (res,) = yield [call("lookup_sensor", model=model)]
             if res.get("found"): break
             known = ", ".join(s["model"] for s in self.session_sensors())
-            prompt = f'I couldn\'t find a sensor matching "{model}". I have data for: {known}. Enter the model for the sensor.'
-        s = res["sensor"]
-        yield [msg(f"The {s['model']} is a {s['type']} and uses the {s['protocol']} communication protocol. Here is the wiring."),
+            prompt = (f"{res['error']} Enter another sensor model." if res.get("error") else
+                      f'I couldn\'t find a sensor matching "{model}". I have data for: {known}. Enter the model for the sensor.')
+        s, port = res["sensor"], res["probe_cube_port"]
+        yield [msg(f"The {s['model']} is a {s['type']} and uses the {s['protocol']} communication protocol. "
+                   f"It goes on probe cube port {port['port']} ({port['pins']}). Here is the wiring."),
                call("show_schematic")]
         for w in res["wiring_plan"]:
             yield [call("request_wiring_step", sensor_pin=w["sensor_pin"])]
@@ -81,31 +100,63 @@ class OfflineLLM:
             while not DONE.search(reply):
                 reply = yield [msg(f"No problem. Let me know once {w['sensor_pin']} is connected to port {w['cube_port']}.")]
             yield [call("confirm_wiring_step", sensor_pin=w["sensor_pin"])]
-        yield from finish(msg("All connections are complete. The sensor is connected."))
+        free = self.session.free_ports()
+        nxt = (" Next free ports: " + ", ".join(f"{p['port']} ({p['interface'].upper()}, {self.session.port_pins(p)})" for p in free) + "."
+               if free else " All probe cube lab ports are now in use.")
+        yield from finish(msg("All connections are complete. The sensor is connected." + nxt))
+
+    PORT_KEYS = ("baud", "data_bits", "parity", "stop_bits")
 
     def configuration(self, c):
-        settings = dict(c.sensor.get("recommended_settings", {}))
-        head = "Let's start configuration. Configuring…"
+        rec = dict(c.sensor.get("recommended_settings", {}))
+        settings = {k: v for k, v in rec.items() if k in self.PORT_KEYS}  # probe cube side: applied directly
+        head = "Let's start configuration. Setting up the probe cube port…"
         while True:
-            calls, skipped = self.apply_calls(settings)
+            calls, skipped = self.apply_calls(c, settings)
             results = (yield [msg(head), *calls]) if calls else []
             failed = [r for r in results if not r.get("ok")]
-            if failed:
-                why = "; ".join(r.get("error") or " ".join(r.get("replies", [])) or "no reply" for r in failed)
-                reply = yield [msg(f"The board did not accept the configuration ({why}). Tell me a different value, or say retry.")]
-                settings.update(parse_change(reply)); head = "Retrying…"
-                continue
-            yield [call("record_configuration", settings=settings)]
+            if not failed: break
+            why = "; ".join(r.get("error") or " ".join(r.get("replies", [])) or "no reply" for r in failed)
+            reply = yield [msg(f"The board did not accept the configuration ({why}). Tell me a different value, or say retry.")]
+            settings.update(parse_change(reply)); head = "Retrying…"
+        # sensor side: propose the recommended values and only apply them if the user agrees
+        current = next(({"rate_hz": r["rate_hz"]} for r in results if "rate_hz" in r and "decoder" in r), {})
+        wanted = {k: v for k, v in rec.items() if k not in self.PORT_KEYS
+                  and not (k in current and abs(current[k] - v) <= 0.1 * v)}
+        settings.update({k: v for k, v in rec.items() if k not in self.PORT_KEYS and k not in wanted})
+        if wanted:
+            notes = c.sensor.get("recommended_notes", {})
+            lines = [f"- {setting_name(k)}: now {show(k, current.get(k))}, recommended {show(k, v)}" + (f". {notes[k][0].upper()}{notes[k][1:]}." if k in notes else "")
+                     for k, v in wanted.items()]
+            reply = yield [msg("The probe cube port is set and the link works. I'd like to change these sensor settings:\n" + "\n".join(lines) +
+                               "\nShall I apply them? (yes / no)")]
+            if YES.search(reply) and not NO.search(reply):
+                calls, _ = self.apply_calls(c, wanted, verify=False)
+                results = yield [msg("Applying…"), *calls]
+                for (k, v), r in zip(wanted.items(), results):
+                    if r.get("ok"): settings[k] = v
+                    elif k in current: settings[k] = current[k]
+            else:
+                settings.update(current)
+                yield [msg("OK, I'll keep the sensor's current settings.")]
+        while True:
+            yield [call("record_configuration", settings=settings), call("start_live_view")]
             note = f" I could not find a board API for: {', '.join(skipped)}." if skipped else ""
             supported = c.sensor.get("uart", {}).get("supported_baud")
             if supported and settings.get("baud") not in supported:
                 note += f" Note: the {c.sensor['model']} datasheet only lists {supported} baud."
-            reply = yield [msg("I have set the configuration shown above." + note + " Let me know if you want to change anything.")]
+            reply = yield [msg("The configuration is shown above and the live view is open, so you can try the sensor now." + note +
+                               " Let me know if you want to change anything.")]
             while not (change := parse_change(reply)) and not NO_CHANGE.search(reply):
-                reply = yield [msg("I can change the baud rate, data bits, parity, stop bits or the stream rate, for example \"set baud to 19200\". "
+                reply = yield [msg("I can change the baud rate, data bits, parity, stop bits or the output rate, for example \"set baud to 19200\" or \"rate 20 hz\". "
                                    "Or say \"looks good\" to continue.")]
             if not change: break
-            settings.update(change); head = "Applying the change…"
+            calls, skipped = self.apply_calls(c, change)
+            results = yield [msg("Applying the change…"), *calls]
+            if failed := [r for r in results if not r.get("ok")]:
+                why = "; ".join(r.get("error") or "no reply" for r in failed)
+                yield [msg(f"That did not work ({why}). Tell me a different value.")]
+            settings.update(change)
         yield from finish(msg("We will move onto testing now."))
 
     def testing(self, c):
@@ -121,7 +172,7 @@ class OfflineLLM:
                                    "or tell me a setting to change (for example \"set baud to 9600\").")]
                 if change := parse_change(reply):
                     c.config.update(change)
-                    calls, _ = self.apply_calls(change)
+                    calls, _ = self.apply_calls(c, change)
                     yield [msg("Applying the change…"), *calls, call("record_configuration", settings=c.config)]
                     head = [msg("Running the test again.")]
         yield from finish(msg("Testing is complete now."))
@@ -131,14 +182,14 @@ class OfflineLLM:
         from agent import SENSORS
         return SENSORS
 
-    def apply_calls(self, settings):
-        apis, calls, skipped = self.session.config["apis"], [], []
+    def apply_calls(self, c, settings, verify=True):
+        apis, calls, skipped = self.session.apis_for(c), [], []
         for key, value in settings.items():
             name = f"set_{key}" if f"set_{key}" in apis else next((n for n, a in apis.items() if list(a.get("params", {})) == [key]), None)
             params = list(apis.get(name, {}).get("params", {}))
             if len(params) != 1: skipped.append(key); continue
             calls.append(call("call_board_api", api=name, args={params[0]: value}))
-        calls += [call("call_board_api", api=n, args={}) for n in self.session.config.get("verify_apis", []) if n in apis]
+        if verify: calls += [call("call_board_api", api=n, args={}) for n in c.sensor.get("verify_apis", ["ports"]) if n in apis or n == "stream_probe"]
         return calls, skipped
 
     def check(self, test, res):
@@ -148,13 +199,9 @@ class OfflineLLM:
             return False, f"Could not read the sensor: {res.get('error', 'unknown error')} ({why}). Check the sensor's TX wire and the UART settings."
         if not res.get("samples"):
             return False, "No data arrived from the sensor. Check the TX wire and the UART settings (baud, parity, stop bits)."
-        rule = test.get("offline_check")
-        if not rule: return True, f"Received {res['samples']} samples."
-        if rule.get("source") == "link":
-            vals = {k: v for k, v in res.get("link", {}).items() if re.search(rule["fields"], k)}
-        else:
-            vals = {k: s[rule["stat"]] for k, s in res["fields"].items() if re.search(rule["fields"], k)}
-        if not vals: return False, f"No fields matching {rule['fields']} in the data."
-        ok = (all if rule.get("mode", "all") == "all" else any)(OPS[rule["op"]](v, rule["value"]) for v in vals.values())
-        shown = ", ".join(f"{k}={v:.2f}" for k, v in vals.items())
-        return ok, f"{rule.get('stat', 'delta')} {shown} (expected {rule.get('mode', 'all')} {rule['op']} {rule['value']})."
+        cks = res.get("checks") if "checks" in res else checks.evaluate(test, res)
+        if not cks: return True, f"Received {res['samples']} samples."
+        shown = lambda x: x["check"] + (" (" + ", ".join(f"{k}={v:.2f}" for k, v in x["values"].items()) + ")" if x["values"] else "")
+        failed = [x for x in cks if not x["pass"]]
+        if failed: return False, "Failed: " + "; ".join(map(shown, failed)) + "."
+        return True, "All checks passed: " + "; ".join(map(shown, cks)) + "."

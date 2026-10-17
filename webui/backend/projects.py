@@ -2,15 +2,17 @@
 reopened from history (replayed into the UI) and continued with new components.
 
 One JSON file per project under data/projects/ (override the root with PROBE_DATA).
-Only the events needed to redraw the UI are kept (no typing indicators); live readings
-are kept so test charts replay in full.
+Only the events needed to redraw the UI are kept (no typing indicators); test readings
+are kept so test charts replay in full (live-monitor readings are not, only their last
+snapshot). Each component records the probe cube port it was given, so a reopened
+project knows which ports are still taken.
 """
 import json, os, re, time, uuid
 from pathlib import Path
 
 DIR = Path(os.environ.get("PROBE_DATA", Path(__file__).parent / "data")) / "projects"
-LOGGED = {"component", "phase", "message", "schematic", "wiring_step", "wiring_confirmed", "board_io",
-          "config", "test_step", "test_status", "reading", "test_result", "error", "done"}
+LOGGED = {"component", "phase", "message", "schematic", "wiring_step", "wiring_confirmed", "board_io", "port_assigned",
+          "config", "live_view", "live_status", "test_step", "test_status", "reading", "test_result", "error", "done"}
 ID_RE = re.compile(r"^[0-9a-f]{10}$")
 
 
@@ -41,6 +43,8 @@ class Project:
             comps.setdefault(cid, {"name": msg["name"], "phases": {}, "done": False})["name"] = msg["name"]
         elif msg["type"] == "phase" and cid in comps:
             comps[cid]["phases"][msg["phase"]] = msg["status"]
+        elif msg["type"] == "port_assigned" and cid in comps:
+            comps[cid].update(port=msg["port"], model=msg["model"])
         elif msg["type"] == "done" and cid in comps:
             comps[cid]["done"] = True
         self.data["events"].append(msg); self.data["updated"] = time.time()

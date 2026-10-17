@@ -1,0 +1,217 @@
+{
+  "model": "NAUTILUS-DUMMY-SENSOR",
+  "aliases": [
+    "nautilus dummy sensor",
+    "dummy sensor",
+    "nautilus",
+    "mega2560",
+    "dummy_sensor"
+  ],
+  "vendor": "Arduino MEGA 2560 running tools/dummy_sensor/dummy_sensor.ino",
+  "type": "simulated temperature and humidity sensor",
+  "protocol": "UART (TTL)",
+  "interface": "ttl",
+  "supply_voltage": "powered from its own USB cable; only GND is shared with the probe cube",
+  "sim_device": "pth",
+  "pins": [
+    {
+      "name": "TX1 (pin 18)",
+      "signal": "UART_TX",
+      "description": "Sensor transmits data"
+    },
+    {
+      "name": "RX1 (pin 19)",
+      "signal": "UART_RX",
+      "description": "Sensor receives commands"
+    },
+    {
+      "name": "GND",
+      "signal": "GND",
+      "description": "Common ground, mandatory"
+    }
+  ],
+  "uart": {
+    "default_baud": 9600,
+    "supported_baud": [
+      9600
+    ],
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1"
+  },
+  "recommended_settings": {
+    "baud": 9600,
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1",
+    "rate_ms": 250
+  },
+  "framing": {
+    "type": "line",
+    "pattern": "^\\$NAUT,T=-?\\d+\\.\\d+,H=-?\\d+\\.\\d+,SEQ=\\d+\\*$"
+  },
+  "stream": {
+    "start_api": "stream_on",
+    "stop_api": "stream_off",
+    "sequence_field": "SEQ"
+  },
+  "fields": {
+    "T": {
+      "unit": "°C",
+      "description": "temperature"
+    },
+    "H": {
+      "unit": "%RH",
+      "description": "relative humidity"
+    }
+  },
+  "commands": {
+    "ID?": "identity string",
+    "READ": "one reading",
+    "START / STOP": "stream on / off",
+    "RATE <ms>": "stream period, min 100",
+    "PING": "replies PONG",
+    "ECHO <text>": "replies <text>"
+  },
+  "apis": {
+    "sensor_ping": {
+      "description": "Link check: send PING to the sensor and wait for PONG.",
+      "command": "send {port} PING",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^PONG$"
+    },
+    "sensor_id": {
+      "description": "Ask the sensor for its identity string.",
+      "command": "send {port} ID?",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^NAUTILUS-"
+    },
+    "sensor_read": {
+      "description": "Request one reading from the sensor.",
+      "command": "send {port} READ",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect_reading": true
+    },
+    "set_rate": {
+      "description": "Set the sensor's stream period in milliseconds (minimum 100).",
+      "command": "send {port} RATE {rate_ms}",
+      "params": {
+        "rate_ms": {
+          "type": "integer",
+          "description": "Stream period in ms, at least 100"
+        }
+      },
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK RATE \\d+$",
+      "changes_sensor": true
+    },
+    "sensor_echo": {
+      "description": "Loopback integrity check: the sensor sends the text back.",
+      "command": "send {port} ECHO {text}",
+      "params": {
+        "text": {
+          "type": "string",
+          "max_length": 50,
+          "description": "Printable ASCII, single spaces"
+        }
+      },
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^{text}$"
+    },
+    "stream_on": {
+      "description": "Start the sensor's periodic stream of readings.",
+      "command": "send {port} START",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK STREAM ON$"
+    },
+    "stream_off": {
+      "description": "Stop the sensor's periodic stream of readings.",
+      "command": "send {port} STOP",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK STREAM OFF$"
+    }
+  },
+  "verify_apis": [
+    "ports",
+    "sensor_ping"
+  ],
+  "data": "Streams $NAUT,T=<degC>,H=<%RH>,SEQ=<n>* frames at 1 Hz from power-up (period set by RATE). T drifts 21-27 degC, H drifts 47-63 %RH. SEQ increments by 1 per frame.",
+  "test_plan": [
+    {
+      "name": "stream",
+      "instruction": "Leave both boards powered and the jumper wires in place while the stream is measured.",
+      "seconds": 5,
+      "expect": "At least 10 samples at 250 ms. T between 20 and 28, H between 45 and 65. seq_gaps 0 and no garbled_lines.",
+      "checks": [
+        {
+          "fields": "^T$",
+          "stat": "n",
+          "op": ">",
+          "value": 9,
+          "label": "more than 9 samples"
+        },
+        {
+          "fields": "^T$",
+          "stat": "min",
+          "op": ">",
+          "value": 20,
+          "label": "T min > 20 °C"
+        },
+        {
+          "fields": "^T$",
+          "stat": "max",
+          "op": "<",
+          "value": 28,
+          "label": "T max < 28 °C"
+        },
+        {
+          "fields": "^H$",
+          "stat": "min",
+          "op": ">",
+          "value": 45,
+          "label": "H min > 45 %RH"
+        },
+        {
+          "fields": "^H$",
+          "stat": "max",
+          "op": "<",
+          "value": 65,
+          "label": "H max < 65 %RH"
+        },
+        {
+          "source": "result",
+          "fields": "seq_gaps",
+          "op": "<",
+          "value": 1,
+          "label": "no missed frames (seq_gaps 0)"
+        }
+      ]
+    },
+    {
+      "name": "link_clean",
+      "instruction": "Keep the wires still while the link error counters are measured.",
+      "seconds": 5,
+      "expect": "link rx > 0 and link ORE, FE, NE and PE all 0.",
+      "checks": [
+        {
+          "source": "link",
+          "fields": "^rx$",
+          "op": ">",
+          "value": 0,
+          "label": "bytes received (rx > 0)"
+        },
+        {
+          "source": "link",
+          "fields": "^(ORE|FE|NE|PE)$",
+          "op": "<",
+          "value": 1,
+          "label": "ORE, FE, NE and PE all 0"
+        }
+      ]
+    }
+  ],
+  "recommended_notes": {
+    "baud": "the sketch is fixed at 9600 8N1",
+    "rate_ms": "a faster stream than the 1 s default gives the tests more samples"
+  }
+}

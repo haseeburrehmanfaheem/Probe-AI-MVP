@@ -5,17 +5,25 @@ Byte-level stand-in for the ST-Link VCP, so the real console client is exercised
   the 'ports' table, 10 ms / 64 B burst framing, the 5 s 0x00 summary, peek, counters, and
   the quirks (double-space send payload, failed cfg still updates the stored config,
   'data + parity does not fit' leaves the port open on its old settings).
-- SimMega mirrors tools/dummy_sensor/dummy_sensor.ino on uart4: 9600 8N1, streams $NAUT
+- SimMega mirrors tools/dummy_sensor/dummy_sensor.ino: 9600 8N1, streams $NAUT
   (or, as the motion sketch in webui/tools/motion_sensor, $MOTN level/flag frames)
   frames at 1 Hz from power-up, answers ID? READ START STOP RATE PING ECHO.
+- SimWT61PC is a WitMotion WT61PC-TTL: binary 55 51/52/53 frames at 1 Hz (as the bench unit shipped), 9600 baud,
+  FF AA register writes (unlock, rate, baud after save, calibration, yaw zero). Its pose
+  follows the "Simulate tilt" button: a few seconds of roll/pitch/yaw sweeps.
+- Devices are plugged into lab ports by layout() ({port: "pth" | "motion" | "wt61pc"}).
 - The wire between them is modelled from the two framings (MEGA fixed at 9600 8N1):
   gross baud mismatch -> 0x00 flood + FE, near miss -> garbage + FE, 8E1/8O1/9N1 -> garbage
-  + FE (+PE), 7N1 -> clean text but FE, 7E1/7O1 -> clean text but PE. Any uart4 re-init
+  + FE (+PE), 7N1 -> clean text but FE, 7E1/7O1 -> clean text but PE. Any port re-init
   lets its TX pin float, which leaves a junk byte in the MEGA's line buffer, so the next
   sensor command gets "ERR unknown cmd ..." once.
-Not modelled: ORE, console RX loss while printing, the typing holdback.
+- Console overrun: the firmware polls USART3's 1-byte RDR and blocks while printing a burst
+  (~87 us per char). More than one byte arriving during a print overruns it, and since
+  service_console() never clears ORE the console goes deaf until reset. Modelled as: a
+  multi-byte host write while a print is in progress makes the console deaf.
+Not modelled: lab-port ORE, the typing holdback.
 """
-import math, random, re, time
+import math, random, re, struct, time
 from collections import deque
 
 PCLK_HZ, HSI_HZ, CSI_HZ, LSE_HZ = 48_000_000, 64_000_000, 4_000_000, 32_768
@@ -62,8 +70,10 @@ class SimMega:
     BAUD, BYTE_T = 9600, 10 / 9600
     IDS = {"pth": "NAUTILUS-DUMMY-SENSOR v1 (MEGA2560)", "motion": "NAUTILUS-MOTION-SENSOR v1 (MEGA2560)"}
 
-    def __init__(self, t0, device=lambda: "pth", motion=lambda: False):
-        self.device, self.motion = device, motion  # callables: which sketch is running, whether something moves
+    def __init__(self, t0, kind="pth", motion=lambda: False):
+        self.kind, self.motion = kind, motion  # which sketch is running; callable: whether something moves
+        self.device = lambda: self.kind
+        self.baud, self.prev_byte_t = self.BAUD, -1.0
         self.level, self.flag = 0.06, 0
         self.t0, self.streaming, self.period = t0, True, 1.0
         self.last_stream, self.seq = t0, 0
@@ -106,13 +116,96 @@ class SimMega:
     def handle(self, t, cmd):
         if cmd == "ID?": self.send_line(t, self.IDS.get(self.device(), self.IDS["pth"]))
         elif cmd == "READ": self.send_line(t, self.reading(t))
-        elif cmd == "START": self.streaming = True; self.send_line(t, "OK STREAM ON")
+        elif cmd == "START":
+            if not self.streaming: self.last_stream = t  # resume from now, don't replay the stopped stretch
+            self.streaming = True; self.send_line(t, "OK STREAM ON")
         elif cmd == "STOP": self.streaming = False; self.send_line(t, "OK STREAM OFF")
         elif cmd == "PING": self.send_line(t, "PONG")
         elif cmd.startswith("RATE "):
             self.period = max(100, c_atol(cmd[5:])) / 1000; self.send_line(t, f"OK RATE {int(self.period * 1000)}")
         elif cmd.startswith("ECHO "): self.send_line(t, cmd[5:])
         else: self.send_line(t, "ERR unknown cmd - ID? READ START STOP RATE PING ECHO")
+
+    def port_reinit(self, t): self.rx.append((t, 0xFF))  # the STM32's TX pin floats during DeInit
+
+
+class SimWT61PC:
+    """WitMotion WT61PC-TTL: always streaming 55 51/52/53 frames; config writes FF AA <reg> <lo> <hi>."""
+    RATES = {0x01: 0.2, 0x02: 0.5, 0x03: 1, 0x04: 2, 0x05: 5, 0x06: 10, 0x07: 20, 0x08: 50, 0x09: 100, 0x0A: 125, 0x0B: 200}
+    BAUDS = {0x02: 9600, 0x06: 115200}
+
+    def __init__(self, t0, motion=lambda: False, seed=2):
+        self.kind, self.motion, self.rng = "wt61pc", motion, random.Random(seed)
+        self.baud, self.pending_baud, self.prev_byte_t = 9600, None, -1.0
+        self.period, self.last_stream, self.streaming = 1.0, t0, True  # 1 Hz, like the bench unit as found
+        self.rx, self.tx, self.tx_free = deque(), deque(), t0
+        self.cmd, self.unlocked_until = bytearray(), 0.0
+        self.pose, self.yaw_offset, self.motion_t0, self.last_t = [0.4, -0.3, 12.0], 0.0, None, t0
+        self.rates = [0.0, 0.0, 0.0]
+
+    @property
+    def byte_t(self): return 10 / self.baud
+
+    def next_stream(self): return self.last_stream + self.period
+
+    def stream_tick(self, t):
+        self.last_stream = t
+        if self.tx and self.tx[-1][0] > t + self.period: return  # link saturated: drop this sample, like the real module
+        self.update_pose(t)
+        roll, pitch, yaw = self.pose
+        yaw_out = (yaw - self.yaw_offset + 180) % 360 - 180
+        r, p = math.radians(roll), math.radians(pitch)
+        g = lambda: self.rng.gauss(0, 0.004)
+        acc = [-math.sin(p) + g(), math.sin(r) * math.cos(p) + g(), math.cos(r) * math.cos(p) + g()]
+        gyro = [w + self.rng.gauss(0, 0.08) for w in self.rates]
+        temp = 26.4 + 0.3 * math.sin(t / 40)
+        out = self.frame(0x51, [a / 16 * 32768 for a in acc] + [temp * 100])
+        out += self.frame(0x52, [w / 2000 * 32768 for w in gyro] + [0])
+        out += self.frame(0x53, [x / 180 * 32768 for x in (roll, pitch, yaw_out)] + [0])
+        start = max(t, self.tx_free)
+        for i, b in enumerate(out): self.tx.append((start + i * self.byte_t, b))
+        self.tx_free = start + len(out) * self.byte_t
+
+    @staticmethod
+    def frame(kind, values):
+        body = bytes([0x55, kind]) + struct.pack("<hhhh", *(max(-32768, min(32767, int(round(v)))) for v in values))
+        return body + bytes([sum(body) & 0xFF])
+
+    def update_pose(self, t):
+        dt, self.last_t = max(t - self.last_t, 0.05), t
+        prev = list(self.pose)
+        if self.motion():
+            if self.motion_t0 is None: self.motion_t0, self.motion_yaw0 = t, self.pose[2]
+            u = t - self.motion_t0
+            env = min(1.0, u / 0.6)  # ease in
+            target = [48 * env * math.sin(2 * math.pi * u / 2.5), 38 * env * math.sin(2 * math.pi * u / 3.1 + 0.8),
+                      self.motion_yaw0 + 70 * env * math.sin(2 * math.pi * u / 3.7)]
+            k = 1.0
+        else:
+            self.motion_t0 = None
+            target, k = [0.4, -0.3, self.pose[2]], 1 - math.exp(-dt / 0.35)  # settle back flat, keep the heading
+        self.pose = [a + (b - a) * k + self.rng.gauss(0, 0.02) for a, b in zip(self.pose, target)]
+        self.pose[2] += 0.02 * dt  # slow yaw drift (no magnetometer)
+        self.rates = [(a - b) / dt for a, b in zip(self.pose, prev)]
+
+    def receive(self, t, b):
+        self.cmd.append(b)
+        if len(self.cmd) > 5: del self.cmd[0]
+        if len(self.cmd) == 5 and self.cmd[0] == 0xFF and self.cmd[1] == 0xAA:
+            reg, lo, hi = self.cmd[2], self.cmd[3], self.cmd[4]; self.cmd.clear()
+            self.write(t, reg, lo | hi << 8)
+
+    def write(self, t, reg, value):
+        if reg == 0x69 and value == 0xB588: self.unlocked_until = t + 10; return
+        if t > self.unlocked_until: return  # locked: writes are ignored silently
+        if reg == 0x00:
+            if value == 0x0001: self.period, self.pending_baud = 0.1, 9600
+            if self.pending_baud: self.baud, self.pending_baud = self.pending_baud, None
+        elif reg == 0x03 and value in self.RATES: self.period = 1 / self.RATES[value]
+        elif reg == 0x04 and value in self.BAUDS: self.pending_baud = self.BAUDS[value]  # takes effect on save
+        elif reg == 0x01 and value == 0x04: self.yaw_offset = self.pose[2]
+
+    def port_reinit(self, t): pass
 
 
 class Port:
@@ -128,23 +221,35 @@ class Port:
 class SimNautilus:
     """Transport interface: write(bytes), read(timeout) -> bytes, close()."""
 
-    def __init__(self, fault=lambda: False, seed=1, device=lambda: "pth", motion=lambda: False):
+    def __init__(self, fault=lambda: False, seed=1, layout=lambda: {"uart4": "pth"}, motion=lambda: False):
         self.t0 = time.time()
         self.fault = fault  # callable -> True while the sensor's TX wire is "disconnected"
         self.rng = random.Random(seed)
         self.out = bytearray()
         self.line = ""
+        self.print_busy_until, self.console_deaf = 0.0, False
         self.kclk = {"234578": 0, "16910": 0}
         self.ports = {p.name: p for p in (Port("uart4", 115200), Port("usart2", 9600, rs485=True, de=True),
                                           Port("usart6", 19200, group="16910"))}
-        self.mega = SimMega(self.t0, device, motion)
-        self.prev_mega_byte_t, self.acc = -1.0, 0.0
+        self.layout, self.motion, self.devices = layout, motion, {}  # port name -> attached device
+        self.acc = 0.0
+        self.sync_devices(self.t0)
         for p in self.ports.values(): self.apply(p, self.t0)
-        self.mega.rx.clear()  # boot-time TX float happens before the MEGA's sketch is listening
+        for d in self.devices.values(): d.rx.clear()  # boot-time TX float happens before the sketch is listening
+
+    def sync_devices(self, now):
+        for port, kind in self.layout().items():
+            d = self.devices.get(port)
+            if d is not None and d.kind == kind: continue
+            if kind == "wt61pc": self.devices[port] = SimWT61PC(now, self.motion)
+            elif d is not None and isinstance(d, SimMega): d.kind = kind  # same MEGA, other sketch
+            else: self.devices[port] = SimMega(now, kind, self.motion)
 
     # ---- transport ----
     def write(self, data):
         now = time.time(); self.advance(now)
+        if len(data) > 1 and now < self.print_busy_until: self.console_deaf = True  # USART3 overrun, ORE never cleared
+        if self.console_deaf: return
         for b in data:
             c = chr(b)
             if c in "\r\n":
@@ -185,7 +290,7 @@ class SimNautilus:
         if frame not in (7, 8, 9):
             self.emit(f"ERR {p.name}: data={p.data} + parity does not fit a 7/8/9-bit frame\r\n"); return False
         self.kclk[p.group] = p.kclk
-        if p.name == "uart4": self.mega.rx.append((now, 0xFF))  # TX pin floats during DeInit
+        if p.name in self.devices: self.devices[p.name].port_reinit(now)
         if self.actual_baud(p) == 0:
             p.open = False
             self.emit(f"ERR {p.name}: HAL_UART_Init failed - baud unreachable with clk={KCLK_NAMES[p.kclk]} "
@@ -196,28 +301,32 @@ class SimNautilus:
 
     # ---- time-ordered bench events ----
     def advance(self, now):
-        u4, mega = self.ports["uart4"], self.mega
+        self.sync_devices(now)
+        for d in self.devices.values():
+            if d.next_stream() < now - 5:  # don't replay a long idle stretch frame by frame
+                d.last_stream = now - d.period
         while True:
-            t_rx = mega.rx[0][0] if mega.rx else math.inf
-            t_tx = mega.tx[0][0] if mega.tx else math.inf
-            t_st = mega.next_stream()
-            if t_st < now - 5:  # don't replay a long idle stretch frame by frame
-                mega.last_stream = now - mega.period; t_st = mega.next_stream()
+            best, t = None, math.inf
+            for name, d in self.devices.items():
+                for kind, tt in (("rx", d.rx[0][0] if d.rx else math.inf), ("tx", d.tx[0][0] if d.tx else math.inf),
+                                 ("st", d.next_stream() if d.streaming else math.inf)):
+                    if tt < t: best, t = (kind, name, d), tt
             t_fl = min((p.last_rx + FLUSH_IDLE for p in self.ports.values() if p.rbuf), default=math.inf)
-            t = min(t_rx, t_tx, t_st, t_fl)
-            if t > now: return
-            if t == t_rx: mega.receive(t, mega.rx.popleft()[1])
-            elif t == t_st: mega.stream_tick(t)
-            elif t == t_tx: self.mega_to_stm(u4, t, mega.tx.popleft()[1])
-            else:
+            if min(t, t_fl) > now: return
+            if t_fl < t:
                 for p in self.ports.values():
-                    if p.rbuf and p.last_rx + FLUSH_IDLE <= t: self.flush(p, t)
+                    if p.rbuf and p.last_rx + FLUSH_IDLE <= t_fl: self.flush(p, t_fl)
+                continue
+            kind, name, d = best
+            if kind == "rx": d.receive(t, d.rx.popleft()[1])
+            elif kind == "st": d.stream_tick(t)
+            else: self.dev_to_stm(self.ports[name], d, t, d.tx.popleft()[1])
 
-    def mega_to_stm(self, p, t, b):
-        in_run = t - self.prev_mega_byte_t <= SimMega.BYTE_T * 1.01
-        self.prev_mega_byte_t = t
+    def dev_to_stm(self, p, d, t, b):
+        in_run = t - d.prev_byte_t <= (10 / d.baud) * 1.01
+        d.prev_byte_t = t
         if self.fault() or not p.open: return
-        ratio = self.actual_baud(p) / SimMega.BAUD
+        ratio = self.actual_baud(p) / d.baud
         out = []
         if abs(ratio - 1) <= 0.03:
             frame = p.data + (p.parity != "n")
@@ -267,17 +376,19 @@ class SimNautilus:
     def print_frame(self, tag, p, buf):
         hexes = "".join(f" {x:02X}" for x in buf)
         text = "".join(chr(x) if 0x20 <= x < 0x7F else "." for x in buf)
-        self.emit(f"[{p.name}] {tag} {len(buf)}B:{hexes}  |{text}|\r\n")
+        out = f"[{p.name}] {tag} {len(buf)}B:{hexes}  |{text}|\r\n"
+        self.print_busy_until = max(self.print_busy_until, time.time()) + len(out) * 10 / 115200  # blocking print
+        self.emit(out)
 
     # ---- STM32 -> device ----
     def port_tx(self, p, data, now):
         if not p.open: self.emit(f"{p.name} is closed\r\n"); return
-        if p.name == "uart4":
-            ratio = self.actual_baud(p) / SimMega.BAUD
+        if (d := self.devices.get(p.name)) is not None:
+            ratio = self.actual_baud(p) / d.baud
             clean = abs(ratio - 1) <= 0.03 and p.data == 8 and p.parity == "n" and p.stop != "0.5"
             byte_t = 10 / max(self.actual_baud(p), 1)
             for i, b in enumerate(data):
-                self.mega.rx.append((now + (i + 1) * byte_t, b if clean else (b | 0x80)))
+                d.rx.append((now + (i + 1) * byte_t, b if clean else (b | 0x80)))
         p.tx += len(data)
         self.emit(f"[{p.name}] TX {len(data)}B\r\n")
 
@@ -312,7 +423,7 @@ class SimNautilus:
             if self.apply(p, now): self.emit(f"{p.name} open\r\n")
         elif cmd == "close":
             p.open = False
-            if p.name == "uart4": self.mega.rx.append((now, 0xFF))
+            if p.name in self.devices: self.devices[p.name].port_reinit(now)
             self.emit(f"{p.name} closed\r\n")
         elif cmd == "send" and raw is not None: self.port_tx(p, (raw + "\r\n").encode("latin-1"), now)
         elif cmd == "sendn" and raw is not None: self.port_tx(p, raw.encode("latin-1"), now)

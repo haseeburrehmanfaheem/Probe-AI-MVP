@@ -1,0 +1,113 @@
+{
+  "model": "MY-SENSOR-123",
+  "aliases": [
+    "my sensor",
+    "sensor 123"
+  ],
+  "vendor": "Who makes it",
+  "type": "one line: what it measures",
+  "protocol": "UART (TTL) | RS485 Modbus RTU | ...",
+  "interface": "ttl",
+  "supply_voltage": "3.3-5 V",
+  "pins": [
+    {
+      "name": "VCC",
+      "signal": "VCC_5V",
+      "description": "Power"
+    },
+    {
+      "name": "TX",
+      "signal": "UART_TX",
+      "description": "Sensor transmits data"
+    },
+    {
+      "name": "RX",
+      "signal": "UART_RX",
+      "description": "Sensor receives commands"
+    },
+    {
+      "name": "GND",
+      "signal": "GND",
+      "description": "Ground"
+    }
+  ],
+  "uart": {
+    "default_baud": 9600,
+    "supported_baud": [
+      9600
+    ],
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1"
+  },
+  "recommended_settings": {
+    "baud": 9600,
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1"
+  },
+  "framing": {
+    "type": "line",
+    "pattern": "^\\$DATA,X=-?\\d+(\\.\\d+)?\\*$"
+  },
+  "stream": {
+    "start_api": "stream_on",
+    "stop_api": "stream_off"
+  },
+  "fields": {
+    "X": {
+      "unit": "unit",
+      "range": [
+        0,
+        100
+      ],
+      "description": "what X is"
+    }
+  },
+  "apis": {
+    "stream_on": {
+      "description": "Start streaming.",
+      "command": "send {port} START",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK$"
+    },
+    "stream_off": {
+      "description": "Stop streaming.",
+      "command": "send {port} STOP",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "sensor_expect": "^OK$"
+    }
+  },
+  "verify_apis": [
+    "ports",
+    "stream_probe"
+  ],
+  "data": "One paragraph for the assistant: what a frame looks like and normal value ranges.",
+  "views": [
+    {
+      "kind": "timeseries",
+      "title": "X",
+      "fields": [
+        "X"
+      ],
+      "unit": "unit"
+    }
+  ],
+  "test_plan": [
+    {
+      "name": "stream",
+      "instruction": "What the user should physically do during the measurement.",
+      "seconds": 5,
+      "expect": "Anything a human should know that the checks don't cover (advisory).",
+      "checks": [
+        {
+          "fields": "^X$",
+          "stat": "n",
+          "op": ">",
+          "value": 3,
+          "label": "more than 3 samples"
+        }
+      ]
+    }
+  ]
+}

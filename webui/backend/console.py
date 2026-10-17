@@ -6,11 +6,12 @@ Framing, as the firmware prints it:
 - Async lines (RX bursts, 0x00 summaries) only appear between a prompt and the next
   echo. The first one is glued onto the prompt, so a line may start with "> ".
 - RX bursts carry the sensor's bytes as hex. They are timing-framed (10 ms idle or
-  64 bytes), so the bytes are decoded per port and re-split on \\r\\n into sensor lines.
-  The ASCII column is never used: CR/LF and real dots both print as '.'.
+  64 bytes), so the bytes are fed to the port's decoder (decoders.py): CRLF text lines or
+  binary frames. The ASCII column is never used: CR/LF and real dots both print as '.'.
 """
 import re, time
 from collections import deque
+from decoders import LineDecoder
 
 PROMPT = "> "
 RX_BURST = re.compile(r"^\[(\w+)\] RX (\d+)B:((?: [0-9A-F]{2})+)  \|")
@@ -18,7 +19,6 @@ ZERO_NOTICE = re.compile(r"^\[(\w+)\] (\d+) x 0x00 suppressed")
 PORT_LINE1 = re.compile(r"^ (\w+)\s+(OPEN|closed)\s+(\d+) ([789])([NEO])(0\.5|1\.5|1|2)  "
                         r"presc=/(\d+) clk=(\w+)\((\d+)Hz\) actual=(\d+)$")
 KV = re.compile(r"(\w+)=(\d+)")
-MAX_SENSOR_LINE = 256  # a port stream with no CRLF for this long is junk; drop it
 
 
 def parse_ports(lines):
@@ -51,8 +51,9 @@ class NautilusConsole:
         self.on_async = on_async or (lambda kind, port, text: None)
         self.buf = ""
         self.reply = None                      # Reply being collected, if a command is in flight
-        self.streams = {}                      # port -> bytearray of undecoded sensor bytes
-        self.sensor_lines = deque(maxlen=500)  # (seq, port, text)
+        self.decoders = {}                     # port -> decoder (decoders.py); LineDecoder until a sensor is attached
+        self.sensor_lines = deque(maxlen=500)  # (seq, port, text): replies and non-data lines
+        self.readings = deque(maxlen=4000)     # (seq, port, values): decoded data frames
         self.notices = deque(maxlen=50)        # (seq, port, text) for 0x00 summaries
         self.seq = 0
         self.last_byte = 0.0
@@ -92,14 +93,11 @@ class NautilusConsole:
     def _line(self, line):
         if m := RX_BURST.match(line):
             port = m.group(1)
-            stream = self.streams.setdefault(port, bytearray())
-            stream += bytes.fromhex(m.group(3))
-            *done, rest = stream.split(b"\r\n")
-            self.streams[port] = bytearray(rest if len(rest) <= MAX_SENSOR_LINE else b"")
-            for raw in done:
-                text = "".join(chr(x) if 0x20 <= x < 0x7F else f"\\x{x:02x}" for x in raw)
-                self.seq += 1; self.sensor_lines.append((self.seq, port, text))
-                self.on_async("sensor", port, text)
+            for kind, payload in self.decoder(port).feed(bytes.fromhex(m.group(3))):
+                self.seq += 1
+                if kind == "reading": self.readings.append((self.seq, port, payload)); continue
+                if kind == "line": self.sensor_lines.append((self.seq, port, payload))
+                self.on_async("sensor" if kind == "line" else "bad", port, payload)
             return
         if m := ZERO_NOTICE.match(line):
             self.seq += 1; self.notices.append((self.seq, m.group(1), line))
@@ -119,7 +117,7 @@ class NautilusConsole:
         for attempt in range(retries + 1):
             self.quiet()
             self.reply = r = Reply(line)
-            self.t.write((line + "\r").encode("latin-1"))
+            self._type(line)
             end = time.time() + timeout
             while not r.complete and time.time() < end: self.pump()
             self.reply = None
@@ -127,7 +125,25 @@ class NautilusConsole:
             if r.echo_ok: return r
         return r
 
+    def _type(self, line, echo_timeout=0.25):
+        """Type a command one character at a time, waiting for each echo before the next.
+        The console polls a 1-byte receive register and blocks while it prints RX bursts,
+        so a whole line written at once can overrun it (and an uncleared overrun leaves the
+        console deaf until reset). With one byte in flight there is nothing to overrun."""
+        for i, ch in enumerate(line):
+            self.t.write(ch.encode("latin-1"))
+            end = time.time() + echo_timeout
+            while not self.buf.endswith(line[:i + 1]) and time.time() < end: self.pump()
+        self.t.write(b"\r")
+
+    def decoder(self, port): return self.decoders.setdefault(port, LineDecoder())
+
+    def set_decoder(self, port, decoder): self.decoders[port] = decoder
+
     def mark(self): return self.seq
+
+    def readings_since(self, mark, port=None):
+        return [v for s, p, v in self.readings if s > mark and (port is None or p == port)]
 
     def lines_since(self, mark, port=None):
         return [text for s, p, text in self.sensor_lines if s > mark and (port is None or p == port)]

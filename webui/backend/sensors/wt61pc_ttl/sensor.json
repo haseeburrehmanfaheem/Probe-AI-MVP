@@ -1,0 +1,499 @@
+{
+  "model": "WT61PC-TTL",
+  "aliases": [
+    "WT61PC",
+    "WT61PC TTL",
+    "WT61PC-TTL",
+    "WT61",
+    "witmotion wt61pc",
+    "witmotion",
+    "wt61pc accelerometer",
+    "accelerometer",
+    "imu",
+    "gyroscope",
+    "inclinometer"
+  ],
+  "vendor": "WitMotion",
+  "type": "6-axis IMU: 3-axis accelerometer + 3-axis gyroscope, onboard Kalman filter that outputs attitude angles (roll, pitch, yaw)",
+  "protocol": "UART (TTL), WitMotion binary protocol",
+  "interface": "ttl",
+  "supply_voltage": "3.3-5 V (power it from the probe cube's 5V pin)",
+  "sim_device": "wt61pc",
+  "pins": [
+    {
+      "name": "VCC",
+      "signal": "VCC_5V",
+      "description": "Power, 3.3-5 V"
+    },
+    {
+      "name": "TX",
+      "signal": "UART_TX",
+      "description": "Sensor transmits data frames"
+    },
+    {
+      "name": "RX",
+      "signal": "UART_RX",
+      "description": "Sensor receives configuration commands"
+    },
+    {
+      "name": "GND",
+      "signal": "GND",
+      "description": "Ground, mandatory"
+    }
+  ],
+  "uart": {
+    "default_baud": 9600,
+    "supported_baud": [
+      9600,
+      115200
+    ],
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1"
+  },
+  "recommended_settings": {
+    "baud": 9600,
+    "data_bits": 8,
+    "parity": "n",
+    "stop_bits": "1",
+    "rate_hz": 10
+  },
+  "framing": {
+    "type": "witmotion"
+  },
+  "stream": {
+    "continuous": true
+  },
+  "ui_rate_hz": 20,
+  "fields": {
+    "AX": {
+      "unit": "g",
+      "range": [
+        -16,
+        16
+      ],
+      "description": "acceleration along X"
+    },
+    "AY": {
+      "unit": "g",
+      "range": [
+        -16,
+        16
+      ],
+      "description": "acceleration along Y"
+    },
+    "AZ": {
+      "unit": "g",
+      "range": [
+        -16,
+        16
+      ],
+      "description": "acceleration along Z (+1 g when flat, chip up)"
+    },
+    "GX": {
+      "unit": "°/s",
+      "range": [
+        -2000,
+        2000
+      ],
+      "description": "angular rate about X"
+    },
+    "GY": {
+      "unit": "°/s",
+      "range": [
+        -2000,
+        2000
+      ],
+      "description": "angular rate about Y"
+    },
+    "GZ": {
+      "unit": "°/s",
+      "range": [
+        -2000,
+        2000
+      ],
+      "description": "angular rate about Z"
+    },
+    "Roll": {
+      "unit": "°",
+      "range": [
+        -180,
+        180
+      ],
+      "description": "rotation about X"
+    },
+    "Pitch": {
+      "unit": "°",
+      "range": [
+        -90,
+        90
+      ],
+      "description": "rotation about Y"
+    },
+    "Yaw": {
+      "unit": "°",
+      "range": [
+        -180,
+        180
+      ],
+      "description": "rotation about Z (relative, drifts: no magnetometer)"
+    },
+    "T": {
+      "unit": "°C",
+      "description": "temperature of the IMU chip itself (reported by the sensor in every acceleration frame)"
+    }
+  },
+  "commands": {
+    "FF AA 69 88 B5": "unlock configuration (needed before every register write, valid ~10 s)",
+    "FF AA 00 00 00": "save configuration to flash",
+    "FF AA 00 01 00": "restore factory defaults",
+    "FF AA 03 <code> 00": "output rate: 01=0.2 02=0.5 03=1 04=2 05=5 06=10 07=20 08=50 09=100 0A=125 0B=200 Hz",
+    "FF AA 04 <code> 00": "sensor baud: 02=9600 06=115200",
+    "FF AA 01 01 00": "start accelerometer calibration (sensor flat and still)",
+    "FF AA 01 04 00": "zero the yaw (Z) angle",
+    "FF AA 01 00 00": "leave calibration mode (normal operation)",
+    "FF AA 23 <00|01> 00": "mounting: 00 horizontal, 01 vertical"
+  },
+  "apis": {
+    "wt_unlock": {
+      "description": "Unlock the WT61PC's configuration registers (sent automatically before every wt_* write).",
+      "command": "sendhex {port} FF AA 69 88 B5",
+      "expect": "^\\[{port}\\] TX \\d+B$"
+    },
+    "wt_save": {
+      "description": "Save the WT61PC's current configuration to its flash (sent automatically after wt_* writes).",
+      "command": "sendhex {port} FF AA 00 00 00",
+      "expect": "^\\[{port}\\] TX \\d+B$"
+    },
+    "wt_set_rate": {
+      "description": "Set how many samples per second the WT61PC outputs (unlock + write + save, then checks that frames still arrive and measures the rate). On the probe cube at 9600 baud, 10 Hz is clean and 20 Hz already damages frames.",
+      "command": "sendhex {port} FF AA 03 {rate_hz} 00",
+      "params": {
+        "rate_hz": {
+          "type": "number",
+          "enum": [
+            0.2,
+            0.5,
+            1,
+            2,
+            5,
+            10,
+            20,
+            50,
+            100,
+            125,
+            200
+          ],
+          "description": "Output rate in Hz",
+          "map": {
+            "0.2": "01",
+            "0.5": "02",
+            "1": "03",
+            "2": "04",
+            "5": "05",
+            "10": "06",
+            "20": "07",
+            "50": "08",
+            "100": "09",
+            "125": "0A",
+            "200": "0B"
+          }
+        }
+      },
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "pre": [
+        "wt_unlock"
+      ],
+      "post": [
+        "wt_save"
+      ],
+      "verify_stream": 2.0,
+      "changes_sensor": true
+    },
+    "wt_set_baud": {
+      "description": "Change the WT61PC's own UART baud (unlock + write + save). The sensor switches after the save, so the stream stops until the probe cube port is set to the same baud with set_baud.",
+      "command": "sendhex {port} FF AA 04 {baud} 00",
+      "params": {
+        "baud": {
+          "type": "integer",
+          "enum": [
+            9600,
+            115200
+          ],
+          "description": "New sensor baud",
+          "map": {
+            "9600": "02",
+            "115200": "06"
+          }
+        }
+      },
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "pre": [
+        "wt_unlock"
+      ],
+      "post": [
+        "wt_save"
+      ],
+      "changes_sensor": true
+    },
+    "wt_calibrate_accel": {
+      "description": "Accelerometer calibration: the sensor must lie flat and completely still. Takes about 5 s (start, wait, exit, save), then checks frames.",
+      "command": "sendhex {port} FF AA 01 01 00",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "pre": [
+        "wt_unlock"
+      ],
+      "post": [
+        {
+          "sleep": 4
+        },
+        "wt_calibration_exit",
+        "wt_save"
+      ],
+      "verify_stream": 1.5,
+      "changes_sensor": true
+    },
+    "wt_zero_yaw": {
+      "description": "Set the current heading as yaw = 0.",
+      "command": "sendhex {port} FF AA 01 04 00",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "pre": [
+        "wt_unlock"
+      ],
+      "post": [
+        {
+          "sleep": 0.3
+        },
+        "wt_calibration_exit"
+      ]
+    },
+    "wt_calibration_exit": {
+      "description": "Return the WT61PC to normal operation after a calibration command.",
+      "command": "sendhex {port} FF AA 01 00 00",
+      "expect": "^\\[{port}\\] TX \\d+B$"
+    },
+    "wt_orientation": {
+      "description": "Tell the WT61PC how it is mounted (unlock + write + save).",
+      "command": "sendhex {port} FF AA 23 {mount} 00",
+      "params": {
+        "mount": {
+          "type": "string",
+          "enum": [
+            "horizontal",
+            "vertical"
+          ],
+          "map": {
+            "horizontal": "00",
+            "vertical": "01"
+          }
+        }
+      },
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "pre": [
+        "wt_unlock"
+      ],
+      "post": [
+        "wt_save"
+      ],
+      "verify_stream": 1.5,
+      "changes_sensor": true
+    },
+    "wt_factory_reset": {
+      "description": "Restore the WT61PC's factory defaults (9600 baud). Use only if the user asks or the sensor is in an unknown state.",
+      "command": "sendhex {port} FF AA 00 01 00",
+      "expect": "^\\[{port}\\] TX \\d+B$",
+      "pre": [
+        "wt_unlock"
+      ],
+      "changes_sensor": true
+    }
+  },
+  "verify_apis": [
+    "ports",
+    "stream_probe"
+  ],
+  "ui_actions": {
+    "zero_yaw": {
+      "label": "Zero yaw",
+      "api": "wt_zero_yaw"
+    }
+  },
+  "sim_action": {
+    "label": "Simulate tilt",
+    "busy_label": "Tilting…",
+    "seconds": 5
+  },
+  "data": "Streams continuously from power-up (no start/stop command). Each sample is three 11-byte frames: 55 51 (acceleration + temperature), 55 52 (angular rate), 55 53 (roll/pitch/yaw). The backend decodes them into AX AY AZ (g), GX GY GZ (deg/s), Roll Pitch Yaw (deg) and T (degC), and reports checksum_errors and the measured rate.",
+  "views": [
+    {
+      "kind": "attitude",
+      "title": "Orientation",
+      "roll": "Roll",
+      "pitch": "Pitch",
+      "yaw": "Yaw",
+      "model": "plane"
+    },
+    {
+      "kind": "timeseries",
+      "title": "Acceleration",
+      "fields": [
+        "AX",
+        "AY",
+        "AZ"
+      ],
+      "unit": "g",
+      "min_span": 2
+    },
+    {
+      "kind": "timeseries",
+      "title": "Angular rate",
+      "fields": [
+        "GX",
+        "GY",
+        "GZ"
+      ],
+      "unit": "°/s",
+      "min_span": 20
+    },
+    {
+      "kind": "timeseries",
+      "title": "Angles",
+      "fields": [
+        "Roll",
+        "Pitch",
+        "Yaw"
+      ],
+      "unit": "°",
+      "min_span": 20
+    },
+    {
+      "kind": "stat",
+      "title": "Chip temperature",
+      "fields": [
+        "T"
+      ]
+    }
+  ],
+  "test_plan": [
+    {
+      "name": "still",
+      "instruction": "Place the sensor flat on the table, chip side up, and keep it completely still.",
+      "seconds": 5,
+      "expect": "Samples arrive at roughly the configured rate. Roll and Pitch near 0 only if the table is level: advisory, not a pass criterion.",
+      "checks": [
+        {
+          "fields": "^G[XYZ]$",
+          "stat": "abs_max",
+          "op": "<",
+          "value": 3,
+          "label": "gyro GX/GY/GZ abs_max < 3 °/s (held still)"
+        },
+        {
+          "fields": "^AZ$",
+          "stat": "mean",
+          "op": ">",
+          "value": 0.9,
+          "label": "AZ mean > 0.9 g (flat, chip up)"
+        },
+        {
+          "fields": "^AZ$",
+          "stat": "mean",
+          "op": "<",
+          "value": 1.1,
+          "label": "AZ mean < 1.1 g"
+        },
+        {
+          "source": "decoder",
+          "fields": "checksum_errors",
+          "op": "<",
+          "value": 1,
+          "label": "no checksum errors"
+        }
+      ]
+    },
+    {
+      "name": "tilt_roll",
+      "instruction": "Tilt the sensor left and right (roll) by about 45 degrees a few times.",
+      "seconds": 6,
+      "expect": "Roll abs_max > 30 deg and GX abs_max > 20 deg/s. checksum_errors 0.",
+      "checks": [
+        {
+          "fields": "^Roll$",
+          "stat": "abs_max",
+          "op": ">",
+          "value": 30,
+          "label": "Roll abs_max > 30°"
+        },
+        {
+          "fields": "^GX$",
+          "stat": "abs_max",
+          "op": ">",
+          "value": 20,
+          "label": "GX abs_max > 20 °/s"
+        },
+        {
+          "source": "decoder",
+          "fields": "checksum_errors",
+          "op": "<",
+          "value": 1,
+          "label": "no checksum errors"
+        }
+      ]
+    },
+    {
+      "name": "tilt_pitch",
+      "instruction": "Tilt the sensor nose up and nose down (pitch) by about 45 degrees a few times.",
+      "seconds": 6,
+      "expect": "Pitch abs_max > 30 deg and GY abs_max > 20 deg/s. checksum_errors 0.",
+      "checks": [
+        {
+          "fields": "^Pitch$",
+          "stat": "abs_max",
+          "op": ">",
+          "value": 30,
+          "label": "Pitch abs_max > 30°"
+        },
+        {
+          "fields": "^GY$",
+          "stat": "abs_max",
+          "op": ">",
+          "value": 20,
+          "label": "GY abs_max > 20 °/s"
+        },
+        {
+          "source": "decoder",
+          "fields": "checksum_errors",
+          "op": "<",
+          "value": 1,
+          "label": "no checksum errors"
+        }
+      ]
+    },
+    {
+      "name": "rotate_yaw",
+      "instruction": "Keep the sensor flat and turn it on the table like a turntable, left and right.",
+      "seconds": 6,
+      "expect": "Yaw should change by tens of degrees (it wraps at ±180°, so judge it from the live view, not max - min): advisory.",
+      "checks": [
+        {
+          "fields": "^GZ$",
+          "stat": "abs_max",
+          "op": ">",
+          "value": 30,
+          "label": "GZ abs_max > 30 °/s"
+        },
+        {
+          "source": "decoder",
+          "fields": "checksum_errors",
+          "op": "<",
+          "value": 1,
+          "label": "no checksum errors"
+        }
+      ]
+    }
+  ],
+  "recommended_notes": {
+    "baud": "the WT61PC's factory default; also the port must match whatever the sensor currently uses",
+    "rate_hz": "10 Hz is the fastest rate that streams clean on the probe cube at 9600 baud (20 Hz already damages frames); slower is fine too"
+  }
+}

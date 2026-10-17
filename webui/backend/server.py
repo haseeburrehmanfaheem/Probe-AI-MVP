@@ -7,12 +7,17 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from agent import Session
+from agent import Session, load_sensors
 from board import Board
 
 HERE = Path(__file__).parent
 FRONTEND = HERE.parent / "frontend"
 CONFIG = json.loads(Path(os.environ.get("BOARD_CONFIG", HERE / "board_config.json")).read_text())
+CONFIG["cube"] = json.loads((HERE / CONFIG["board_definition"]).read_text())  # probe cube ports and pins
+# PROBE_TRANSPORT=serial PROBE_PORT=/dev/cu.usbmodemXXXX use the real board without editing board_config.json
+if os.environ.get("PROBE_TRANSPORT"): CONFIG["transport"]["type"] = os.environ["PROBE_TRANSPORT"]
+if os.environ.get("PROBE_PORT"): CONFIG["transport"]["port"] = os.environ["PROBE_PORT"]
+load_sensors(CONFIG)  # sensors/<id>/: fails loudly on a bad definition
 board = Board(CONFIG)  # one board shared by all tabs; the serial port can only be opened once
 
 app = FastAPI()

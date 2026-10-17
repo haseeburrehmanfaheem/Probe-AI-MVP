@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Probe sensor definition (sensors/<id>/sensor.json)",
+  "type": "object",
+  "required": [
+    "model",
+    "type",
+    "protocol",
+    "interface",
+    "pins",
+    "framing",
+    "fields",
+    "test_plan"
+  ],
+  "properties": {
+    "model": {
+      "type": "string"
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "vendor": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "protocol": {
+      "type": "string"
+    },
+    "interface": {
+      "enum": [
+        "ttl",
+        "rs485"
+      ],
+      "description": "Which probe cube lab port type it needs (drives port allocation)."
+    },
+    "supply_voltage": {
+      "type": "string"
+    },
+    "sim_device": {
+      "type": "string",
+      "description": "Simulated device to attach on the sim bench: pth | motion | wt61pc."
+    },
+    "pins": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "signal"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "signal": {
+            "enum": [
+              "UART_TX",
+              "UART_RX",
+              "GND",
+              "VCC_5V",
+              "VCC_3V3",
+              "RS485_A",
+              "RS485_B"
+            ]
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "uart": {
+      "type": "object"
+    },
+    "recommended_settings": {
+      "type": "object",
+      "description": "Setting -> value. Keys match board API params (baud, data_bits, parity, stop_bits, rate_ms, rate_hz...)."
+    },
+    "framing": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "pattern"
+          ],
+          "properties": {
+            "type": {
+              "const": "line"
+            },
+            "pattern": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "witmotion"
+            }
+          }
+        }
+      ]
+    },
+    "stream": {
+      "type": "object",
+      "properties": {
+        "start_api": {
+          "type": "string"
+        },
+        "stop_api": {
+          "type": "string"
+        },
+        "continuous": {
+          "type": "boolean"
+        },
+        "sequence_field": {
+          "type": "string"
+        }
+      }
+    },
+    "ui_rate_hz": {
+      "type": "number",
+      "description": "Max reading events per second sent to the UI (default 10)."
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "type": "string"
+          },
+          "range": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "apis": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "description",
+          "command",
+          "expect"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string",
+            "description": "Console command template; {port} and {param} are filled in."
+          },
+          "params": {
+            "type": "object"
+          },
+          "expect": {
+            "type": "string"
+          },
+          "sensor_expect": {
+            "type": "string"
+          },
+          "sensor_expect_reading": {
+            "type": "boolean"
+          },
+          "pre": {
+            "type": "array"
+          },
+          "post": {
+            "type": "array",
+            "description": "API names or {\"sleep\": seconds}."
+          },
+          "verify_stream": {
+            "type": "number",
+            "description": "After sending, listen this many seconds and require valid readings (sensors without ACKs)."
+          },
+          "changes_sensor": {
+            "type": "boolean",
+            "description": "Writes the sensor's own settings: the LLM must ask the user first."
+          }
+        }
+      }
+    },
+    "verify_apis": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ui_actions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "label",
+          "api"
+        ]
+      }
+    },
+    "sim_action": {
+      "type": "object",
+      "required": [
+        "label",
+        "seconds"
+      ]
+    },
+    "data": {
+      "type": "string"
+    },
+    "views": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "timeseries",
+              "motion",
+              "attitude",
+              "stat"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "min_span": {
+            "type": "number",
+            "description": "timeseries: smallest y-axis span, so sensor noise at rest isn't blown up"
+          }
+        }
+      }
+    },
+    "test_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "instruction",
+          "seconds",
+          "checks"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "expect": {
+            "type": "string"
+          },
+          "checks": {
+            "type": "array",
+            "description": "Pass criteria evaluated in code (see checks.py); all must pass.",
+            "items": {
+              "type": "object",
+              "required": [
+                "fields",
+                "op",
+                "value"
+              ],
+              "properties": {
+                "source": {
+                  "enum": [
+                    "fields",
+                    "link",
+                    "decoder",
+                    "result"
+                  ]
+                },
+                "fields": {
+                  "type": "string"
+                },
+                "stat": {
+                  "enum": [
+                    "n",
+                    "min",
+                    "max",
+                    "mean",
+                    "std",
+                    "abs_max",
+                    "range"
+                  ]
+                },
+                "op": {
+                  "enum": [
+                    "<",
+                    ">",
+                    "<=",
+                    ">="
+                  ]
+                },
+                "value": {
+                  "type": "number"
+                },
+                "mode": {
+                  "enum": [
+                    "all",
+                    "any"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recommended_notes": {
+      "type": "object",
+      "description": "Setting -> why it is recommended (shown to the LLM and the user)."
+    }
+  }
+}

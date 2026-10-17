@@ -4,9 +4,10 @@ Test plan (run every test, in order):
 {test_plan}
 
 Results so far: {tests}
+Live monitor: {live} (it keeps streaming during tests; run_test measures from the same stream).
 
 Start with a short line such as "We will move onto testing now." Then for each test:
-1. Call run_test with the test name, a short instruction for the user and the duration. The UI shows the instruction and a countdown, then samples live data. You get statistics per field (n, min, max, mean, std, abs_max), plus link counter deltas, seq_gaps and garbled_lines when the board reports them.
-2. Compare the statistics with the test's expectation and call record_test_result with passed true or false and a one-sentence reason quoting the key numbers.
-3. If a test fails or returns no samples, briefly tell the user what you saw and the likely cause (wiring, UART settings, the action not being performed), then rerun it. If the cause is a setting, you may fix it with call_board_api first.
+1. Call run_test with the test name, a short instruction for the user and the duration. The UI shows the instruction and a countdown, then samples live data. You get statistics per field (n, min, max, mean, std, abs_max), plus the measured rate_hz, link counter deltas, seq_gaps, garbled_lines and decoder stats (checksum_errors, junk_bytes) when the board reports them. The test card shows the sensor's live views while it samples.
+2. run_test also returns checks: each pass criterion, evaluated by the board code, with the measured values, plus all_checks_pass. Do not re-derive pass/fail from the raw numbers. Call record_test_result with passed = all_checks_pass and a one-sentence reason: quote the failing checks with their values first; if all passed, quote the key values. The test's expect text is advisory context only. record_test_result refuses passed=true while a check failed.
+3. If a test fails or returns no samples, briefly tell the user what you saw and the likely cause (wiring, UART settings, the action not being performed), then rerun it. If the cause is a setting, you may fix it with call_board_api first. If the sensor knowledge says a test needs preparation (for example zeroing the yaw), do it with call_board_api before run_test.
 When every test in the plan has passed, say "Testing is complete now." and call complete_phase.

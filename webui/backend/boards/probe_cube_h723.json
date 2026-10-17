@@ -1,0 +1,55 @@
+{
+  "name": "Probe Cube",
+  "mcu_board": "STM32 Nucleo-H723ZG",
+  "firmware": "Nautilus UART LAB (nautilus_PTH_test, Core/Src/uart_lab.c)",
+  "source": "Pin and port data from nautilus_PTH_test/nautilus_PTH_test.ioc, Core/Src/uart_lab.c (port table) and UART_LAB_GUIDE.md.",
+  "console": {"port": "usart3", "pins": "PD8 TX / PD9 RX, wired to the ST-LINK virtual COM port (USB)", "baud": 115200, "framing": "8N1"},
+  "lab_ports": [
+    {
+      "port": "uart4", "interface": "ttl", "level": "3.3 V TTL (PD0 is 5 V tolerant)",
+      "tx": {"pin": "PD1", "function": "UART4_TX", "header": "CN9"},
+      "rx": {"pin": "PD0", "function": "UART4_RX", "header": "CN9"},
+      "notes": "First choice for a TTL sensor. Shares its kernel-clock mux with usart2 and the usart3 console, so clk= on this port retunes the console too."
+    },
+    {
+      "port": "usart6", "interface": "ttl", "level": "3.3 V TTL",
+      "tx": {"pin": "PC6", "function": "USART6_TX", "header": "CN7"},
+      "rx": {"pin": "PC7", "function": "USART6_RX", "header": "CN7"},
+      "notes": "Second TTL port. Own kernel-clock mux; the only port that may use clk=lse. Boots at 19200 baud."
+    },
+    {
+      "port": "usart2", "interface": "rs485", "level": "RS485 differential via an external transceiver module",
+      "tx": {"pin": "PD5", "function": "USART2_TX", "header": "CN9"},
+      "rx": {"pin": "PD6", "function": "USART2_RX", "header": "CN9"},
+      "de": {"pin": "PE4", "function": "RS485_DE (GPIO)", "header": "CN9"},
+      "bus": {"a": "RS485 A (+)", "b": "RS485 B (-)"},
+      "notes": "Sits behind the RS485 transceiver (DI=PD5, RO=PD6, DE/RE=PE4). Wire RS485 sensors to the transceiver's A/B terminals, never to PD5/PD6 directly. Default profile: waveshare8ch (Modbus RTU 9600 8N1, rs485=1)."
+    }
+  ],
+  "power_pins": [
+    {"label": "5V", "signal": "VCC_5V", "header": "CN8", "notes": "From the Nucleo's 5 V rail (USB powered); keep the sensor's draw under ~100 mA."},
+    {"label": "3V3", "signal": "VCC_3V3", "header": "CN8", "notes": "From the Nucleo's 3.3 V regulator."},
+    {"label": "GND", "signal": "GND", "header": "CN8 or any GND pin", "notes": "Common ground is mandatory for every sensor."}
+  ],
+  "header_note": "Connector names follow the Nucleo-144 Zio layout (UM2407). Pin labels are also printed on the board silkscreen; check them there before wiring.",
+  "console_commands": {
+    "ports": "list every lab port: state, framing, prescaler, kernel clock, actual baud, counters rx tx ORE FE NE PE zeros dropped",
+    "cfg <port> k=v ...": "reconfigure and reopen a port; keys baud= data=7|8|9 parity=n|e|o stop=0.5|1|1.5|2 presc= clk=pclk|hsi|csi|lse fifo=0|1 swap=0|1",
+    "bind <port> <profile>": "apply a built-in profile (waveshare8ch, nmea-gps, ttl-115k2, uno-accel)",
+    "open <port> / close <port>": "reopen with the stored config / fully de-initialise",
+    "send <port> <text>": "send text + CRLF",
+    "sendn <port> <text>": "send text without a line ending",
+    "sendhex <port> <hh> ...": "send raw bytes (binary protocols)",
+    "mon <port> 0|1": "print every received burst as hex (the backend decodes these)",
+    "peek <port>": "show the latest received burst",
+    "rs485 <port> 0|1": "DE-pin direction control around TX (usart2 only)",
+    "clear <port>": "zero the counters"
+  },
+  "failure_signatures": [
+    "'N x 0x00 suppressed' and zeros climbing: gross baud mismatch, or the RX wire disconnected / held low.",
+    "Total silence, rx=0: no connection or the device is not transmitting.",
+    "Readable-ish garbage and FE climbing: close-but-wrong baud or wrong stop bits.",
+    "PE climbing: parity mismatch (fix with cfg <port> parity=).",
+    "ORE climbing: bytes arrive faster than the polled firmware drains them (long console prints at high baud)."
+  ]
+}
